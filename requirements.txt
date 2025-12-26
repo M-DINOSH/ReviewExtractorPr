@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+authlib
+httpx
+sqlalchemy
+python-dotenv
+requests
