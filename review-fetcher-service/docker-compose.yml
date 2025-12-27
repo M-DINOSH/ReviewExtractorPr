@@ -1,8 +1,9 @@
 services:
   review-fetcher:
     build: .
-    ports:
-      - "8001:8000"
+    # Remove port mapping for production scaling - use load balancer instead
+    # ports:
+    #   - "8083:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reviews
       - REDIS_URL=redis://redis:6379
@@ -11,8 +12,31 @@ services:
       - db
       - redis
       - kafka
-    volumes:
-      - .:/app
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Development service with port mapping for testing
+  review-fetcher-dev:
+    build: .
+    ports:
+      - "8083:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reviews
+      - REDIS_URL=redis://redis:6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      - db
+      - redis
+      - kafka
+    profiles:
+      - dev
 
   db:
     image: postgres:15
