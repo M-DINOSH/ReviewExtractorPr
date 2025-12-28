@@ -144,8 +144,17 @@ class SyncService:
                 # Store locations in database
                 for location in locations:
                     location_id = location["name"].split("/")[-1]
+                    
+                    # For mock mode, the location_id is already unique (account_id + location_id)
+                    # For real mode, add sync_job_id suffix
+                    from app.config import settings
+                    if settings.mock_mode:
+                        unique_location_id = location_id
+                    else:
+                        unique_location_id = f"{location_id}_{sync_job_id}"
+                        
                     location_obj = Location(
-                        id=location_id,
+                        id=unique_location_id,
                         account_id=account_id,
                         name=location.get("locationName", ""),
                         address=str(location.get("address", {})),

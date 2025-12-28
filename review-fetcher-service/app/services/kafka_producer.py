@@ -1,5 +1,5 @@
 import json
-from kafka import KafkaProducer
+from kafka import KafkaProducer as KafkaProducerClient
 from app.config import settings
 import structlog
 
@@ -13,17 +13,17 @@ class KafkaProducer:
     def start(self):
         # Parse bootstrap servers - can be comma-separated string
         servers = settings.kafka_bootstrap_servers.split(',') if ',' in settings.kafka_bootstrap_servers else [settings.kafka_bootstrap_servers]
-        self.producer = KafkaProducer(
-            bootstrap_servers=servers
+        self.producer = KafkaProducerClient(
+            bootstrap_servers=servers,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
         logger.info("Kafka producer started")
 
     def send_review(self, review_data: dict):
         try:
-            data = json.dumps(review_data).encode('utf-8')
             future = self.producer.send(
                 settings.kafka_topic,
-                data
+                review_data
             )
             # Wait for the send to complete
             future.get(timeout=10)

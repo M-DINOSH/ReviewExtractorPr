@@ -11,16 +11,20 @@ logger = structlog.get_logger()
 
 
 class MockDataLoader:
-    """Loads and provides mock data from JSON files"""
+    """Loads and provides mock data from JSON files with proper relationships"""
 
     def __init__(self):
         self.accounts_data = []
         self.locations_data = []
         self.reviews_data = []
+        self._accounts_by_client = {}
+        self._locations_by_account = {}
+        self._reviews_by_location = {}
+        self._account_name_to_id = {}
         self._load_data()
 
     def _load_data(self):
-        """Load data from JSON files"""
+        """Load data from JSON files and build relationship indexes"""
         try:
             # Load accounts
             accounts_path = os.path.join(os.path.dirname(__file__), '../../json/accounts.json')
@@ -37,6 +41,9 @@ class MockDataLoader:
             with open(reviews_path, 'r') as f:
                 self.reviews_data = json.load(f)
 
+            # Build indexes for efficient lookup
+            self._build_indexes()
+
             logger.info("Mock data loaded successfully",
                        accounts=len(self.accounts_data),
                        locations=len(self.locations_data),
@@ -46,44 +53,92 @@ class MockDataLoader:
             logger.error("Failed to load mock data", error=str(e))
             raise
 
+    def _build_indexes(self):
+        """Build indexes for efficient data lookup"""
+        # Index accounts by client_id
+        for account in self.accounts_data:
+            client_id = account['client_id']
+            if client_id not in self._accounts_by_client:
+                self._accounts_by_client[client_id] = []
+            self._accounts_by_client[client_id].append(account)
+
+        # Create mapping from Google account name to account_id
+        self._account_name_to_id = {}
+        for account in self.accounts_data:
+            self._account_name_to_id[account['google_account_name']] = account['account_id']
+
+        # Index locations by google_account_id
+        for location in self.locations_data:
+            account_id = location['google_account_id']
+            if account_id not in self._locations_by_account:
+                self._locations_by_account[account_id] = []
+            self._locations_by_account[account_id].append(location)
+
+        # Index reviews by location_id
+        for review in self.reviews_data:
+            location_id = review['location_id']
+            if location_id not in self._reviews_by_location:
+                self._reviews_by_location[location_id] = []
+            self._reviews_by_location[location_id].append(review)
+
     def get_accounts_for_client(self, client_id: str) -> List[Dict]:
         """Get accounts for a specific client"""
-        # For demo purposes, return a subset of accounts based on client_id hash
-        import hashlib
-        client_hash = int(hashlib.md5(client_id.encode()).hexdigest()[:2], 16)
-        start_idx = client_hash % max(1, len(self.accounts_data) // 3)
-        end_idx = min(start_idx + 3, len(self.accounts_data))
+        # Convert client_id to int for lookup (assuming it's a hash or identifier)
+        try:
+            client_id_int = int(client_id) if client_id.isdigit() else hash(client_id) % 10 + 1
+        except:
+            client_id_int = hash(client_id) % 6 + 1  # Default to 1-6 range
 
-        accounts = []
-        for account in self.accounts_data[start_idx:end_idx]:
-            accounts.append({
+        # Get accounts for this client, or fallback to client 1 if not found
+        accounts = self._accounts_by_client.get(client_id_int, self._accounts_by_client.get(1, []))
+
+        result = []
+        for account in accounts[:5]:  # Limit to 5 accounts per client
+            result.append({
                 "name": account["google_account_name"],
                 "accountName": account["account_display_name"],
                 "type": "BUSINESS"
             })
-        return accounts
+        return result
 
     def get_locations_for_account(self, account_name: str) -> List[Dict]:
         """Get locations for a specific account"""
-        account_id = account_name.split('/')[-1]
-        
-        # Extract original account ID from unique account ID (format: original_id_sync_job_id)
-        if '_' in account_id:
-            original_account_id = account_id.split('_')[0]
-        else:
-            original_account_id = account_id
+        # Handle suffixed account names (format: accounts/ORIGINAL_ID_SYNC_JOB_ID)
+        original_account_name = account_name
+        if '_' in account_name and account_name.count('/') == 1:
+            # Split on the last underscore to separate sync_job_id
+            parts = account_name.rsplit('_', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                original_account_name = parts[0]
 
-        locations = []
-        # Get a subset of locations based on account_id hash to avoid duplicates
-        account_hash = int(original_account_id[-2:], 16) if len(original_account_id) >= 2 else int(original_account_id[-1]) if original_account_id else 0
-        start_idx = account_hash % max(1, len(self.locations_data) // 5)
-        end_idx = min(start_idx + 5, len(self.locations_data))
+        # Look up the account_id using the original Google account name
+        account_id = self._account_name_to_id.get(original_account_name)
+        if account_id is None:
+            # Fallback: try to extract from account name
+            if '/' in original_account_name:
+                account_name_part = original_account_name.split('/')[-1]
+                try:
+                    account_id = int(account_name_part)
+                except:
+                    account_id = hash(original_account_name) % 100 + 1
+            else:
+                account_id = hash(original_account_name) % 100 + 1
 
-        for i, location in enumerate(self.locations_data[start_idx:end_idx]):
-            # Generate unique location ID by combining account and location
-            unique_location_id = f"{location['location_name'].split('/')[-1]}_{original_account_id[-4:]}_{i}"
+        # Get locations for this account
+        locations = self._locations_by_account.get(account_id, [])
 
-            locations.append({
+        result = []
+        for i, location in enumerate(locations[:10]):  # Limit to 10 locations per account
+            # Create a unique location ID using account + index to ensure uniqueness
+            # Extract the base account ID (without sync_job suffix)
+            base_account_id = account_name.split('/')[-1]
+            if '_' in base_account_id:
+                base_account_id = base_account_id.split('_')[0]
+
+            # Use account_id + index to ensure uniqueness
+            unique_location_id = f"{base_account_id}_{i}"
+
+            result.append({
                 "name": f"locations/{unique_location_id}",
                 "locationName": location["location_title"],
                 "address": {
@@ -94,24 +149,44 @@ class MockDataLoader:
                 }
             })
 
-        # Ensure we have at least 2-3 locations per account
-        if len(locations) < 3:
-            # Add more locations if needed
-            additional_start = (start_idx + 10) % len(self.locations_data)
-            for i, location in enumerate(self.locations_data[additional_start:additional_start + (3 - len(locations))]):
-                unique_location_id = f"{location['location_name'].split('/')[-1]}_{account_id[-4:]}_{i}"
-                locations.append({
-                    "name": f"locations/{unique_location_id}",
-                    "locationName": location["location_title"],
-                    "address": {
-                        "formatted_address": location["address"],
-                        "locality": location["address"].split(',')[0].strip(),
-                        "region": location["address"].split(',')[-2].strip() if len(location["address"].split(',')) > 1 else "",
-                        "country": "IN"
-                    }
-                })
+        return result
 
-        return locations[:5]  # Limit to 5 locations per account
+    def get_reviews_for_location(self, location_id: str) -> List[Dict]:
+        """Get reviews for a specific location"""
+        # Extract the location ID number
+        if '/' in location_id:
+            location_id = location_id.split('/')[-1]
+
+        # Remove any sync_job_id suffix if present
+        if '_' in location_id:
+            location_id = location_id.split('_')[0]
+
+        try:
+            location_id_int = int(location_id)
+        except:
+            location_id_int = hash(location_id) % 1000 + 1
+
+        # Get reviews for this location
+        reviews = self._reviews_by_location.get(location_id_int, [])
+
+        result = []
+        for review in reviews[:50]:  # Limit to 50 reviews per location
+            result.append({
+                "reviewId": review["google_review_id"],
+                "starRating": self._rating_to_google_format(review["rating"]),
+                "comment": review["comment"],
+                "createTime": review["review_created_time"],
+                "reviewer": {
+                    "displayName": review["reviewer_name"]
+                }
+            })
+
+        return result
+
+    def _rating_to_google_format(self, rating: int) -> str:
+        """Convert numeric rating to Google format"""
+        rating_map = {1: "ONE", 2: "TWO", 3: "THREE", 4: "FOUR", 5: "FIVE"}
+        return rating_map.get(rating, "FIVE")
 
     def get_reviews_for_location(self, location_name: str) -> List[Dict]:
         """Get reviews for a specific location"""

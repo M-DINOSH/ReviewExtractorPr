@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     class Config:
-        env_file = ".env"
+        # Don't use env_file since we're using Docker environment variables
+        pass
 
 
 settings = Settings()

@@ -36,3 +36,21 @@ class ReviewMessage(BaseModel):
     source: str = "google"
     ingestion_timestamp: str
     sync_job_id: int
+
+
+class ReviewResponse(BaseModel):
+    id: str
+    location_id: str
+    account_id: str
+    rating: Optional[int]
+    comment: Optional[str]
+    reviewer_name: Optional[str]
+    create_time: Optional[datetime]
+    client_id: str
+    sync_job_id: int
+    created_at: datetime
+
+
+class ReviewsListResponse(BaseModel):
+    total_reviews: int
+    reviews: list[ReviewResponse]
