@@ -91,8 +91,17 @@ class SyncService:
             # Store accounts in database
             for account in accounts:
                 account_id = account["name"].split("/")[-1]
+                
+                # Generate unique account ID for mock mode to avoid duplicates
+                from app.config import settings
+                if settings.mock_mode:
+                    # Create unique ID combining account ID and sync job ID
+                    unique_account_id = f"{account_id}_{sync_job_id}"
+                else:
+                    unique_account_id = account_id
+                    
                 account_obj = Account(
-                    id=account_id,
+                    id=unique_account_id,
                     name=account.get("accountName", account_id),
                     client_id=client_id,
                     sync_job_id=sync_job_id
@@ -189,8 +198,16 @@ class SyncService:
                     from datetime import datetime
                     create_time = datetime.fromisoformat(review.get("createTime", "2023-01-01T12:00:00Z").replace('Z', '+00:00'))
                     
+                    # Generate unique review ID for mock mode to avoid duplicates
+                    from app.config import settings
+                    if settings.mock_mode:
+                        # Create unique ID combining review ID, location ID, and sync job ID
+                        review_id = f"{review['reviewId']}_{location_id}_{sync_job_id}"
+                    else:
+                        review_id = review["reviewId"]
+                    
                     review_obj = Review(
-                        id=review["reviewId"],
+                        id=review_id,
                         location_id=location_id,
                         account_id=account_id,
                         rating=rating,
