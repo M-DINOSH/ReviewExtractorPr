@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 
@@ -16,13 +16,23 @@ class SyncResponse(BaseModel):
     message: str
 
 
+class JobStatusResponse(BaseModel):
+    job_id: int
+    status: str
+    current_step: str
+    step_status: Dict[str, Any]
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+
 class ReviewMessage(BaseModel):
     review_id: str
     location_id: str
     account_id: str
-    rating: int
+    rating: Optional[int]
     comment: Optional[str]
     reviewer_name: Optional[str]
-    create_time: datetime
+    create_time: Optional[str]
     source: str = "google"
-    ingestion_timestamp: datetime
+    ingestion_timestamp: str
+    sync_job_id: int

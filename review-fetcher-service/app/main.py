@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import engine, get_db
+from app.database import engine, get_db, async_session
 from app.models import SyncJob, Base
-from app.schemas import SyncRequest, SyncResponse
+from app.schemas import SyncRequest, SyncResponse, JobStatusResponse
 from app.workers.tasks import sync_reviews_task
 from app.services.kafka_producer import kafka_producer
 from app.services.google_api import google_api_client
@@ -53,22 +53,33 @@ async def shutdown_event():
 async def sync_reviews(
     request: SyncRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
 ):
-    # Validate access_token (basic expiry check if possible)
-    # For now, assume it's valid
+    # Create sync job with access token stored for background processing
+    # Use a new session for this operation to avoid dependency injection issues
+    db = async_session()
+    try:
+        sync_job = SyncJob(
+            client_id=request.client_id or "unknown",
+            request_id=request.request_id,
+            correlation_id=request.correlation_id,
+            access_token=request.access_token,  # Store token for background processing
+            status="pending",
+            current_step="token_validation",
+            step_status={
+                "token_validation": {"status": "pending", "timestamp": None, "message": None},
+                "accounts_fetch": {"status": "pending", "timestamp": None, "message": None},
+                "locations_fetch": {"status": "pending", "timestamp": None, "message": None},
+                "reviews_fetch": {"status": "pending", "timestamp": None, "message": None},
+                "kafka_publish": {"status": "pending", "timestamp": None, "message": None}
+            }
+        )
+        db.add(sync_job)
+        await db.commit()
+        await db.refresh(sync_job)
+    finally:
+        await db.close()
 
-    # Create sync job
-    sync_job = SyncJob(
-        client_id=request.client_id or "unknown",
-        request_id=request.request_id,
-        correlation_id=request.correlation_id
-    )
-    db.add(sync_job)
-    await db.commit()
-    await db.refresh(sync_job)
-
-    # Enqueue background task
+    # Enqueue background task with continuous flow
     background_tasks.add_task(
         sync_reviews_task,
         request.access_token,
@@ -79,8 +90,29 @@ async def sync_reviews(
     return SyncResponse(
         job_id=sync_job.id,
         status="pending",
-        message="Sync job enqueued"
+        message="Continuous sync flow initiated - will automatically progress through all steps"
     )
+
+
+@app.get("/job/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: int):
+    """Get the status of a sync job including step-by-step progress"""
+    db = async_session()
+    try:
+        job = await db.get(SyncJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        return JobStatusResponse(
+            job_id=job.id,
+            status=job.status,
+            current_step=job.current_step,
+            step_status=job.step_status or {},
+            created_at=job.created_at,
+            updated_at=job.updated_at
+        )
+    finally:
+        await db.close()
 
 
 @app.get("/health")

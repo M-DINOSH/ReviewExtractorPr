@@ -26,16 +26,25 @@ class GoogleAPIClient:
         response.raise_for_status()
         return response.json()
 
-    async def get_accounts(self, access_token: str):
-        cache_key = f"accounts:{access_token[:10]}"  # Partial token for cache key
-        cached = await cache_get(cache_key)
-        if cached:
-            return cached
-
-        url = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
-        data = await self._get(url, access_token)
-        await cache_set(cache_key, data, ttl=3600)  # Cache for 1 hour
-        return data
+    async def validate_token(self, access_token: str):
+        """Validate access token using Google's tokeninfo endpoint"""
+        try:
+            # Use Google's tokeninfo endpoint for validation
+            url = f"https://www.googleapis.com/oauth2/v1/tokeninfo?access_token={access_token}"
+            response = await self.client.get(url)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            # If tokeninfo fails, try a lightweight API call
+            try:
+                # Test with a minimal API call that doesn't count against quota
+                test_url = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
+                headers = {"Authorization": f"Bearer {access_token}"}
+                response = await self.client.get(test_url, headers=headers)
+                response.raise_for_status()
+                return {"valid": True}
+            except Exception:
+                raise
 
     async def get_locations(self, account_id: str, access_token: str):
         cache_key = f"locations:{account_id}"
@@ -54,7 +63,6 @@ class GoogleAPIClient:
 
     async def close(self):
         await self.client.aclose()
-
 
 # Global instance
 google_api_client = GoogleAPIClient()

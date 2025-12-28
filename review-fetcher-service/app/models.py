@@ -5,6 +5,13 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Index, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
+
+Base = declarative_base()
+
+
 class SyncJob(Base):
     __tablename__ = "sync_jobs"
 
@@ -13,8 +20,19 @@ class SyncJob(Base):
     request_id = Column(String, nullable=True)
     correlation_id = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending, running, completed, failed
+    current_step = Column(String, default="token_validation")  # token_validation, accounts_fetch, locations_fetch, reviews_fetch, kafka_publish
+    step_status = Column(JSON, default=dict)  # Track status of each step
+    access_token = Column(Text, nullable=False)  # Store token for background processing
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        Index('idx_sync_jobs_status', 'status'),
+        Index('idx_sync_jobs_client_id', 'client_id'),
+        Index('idx_sync_jobs_current_step', 'current_step'),
+    )
 
 
 class Account(Base):
