@@ -11,7 +11,11 @@ class KafkaProducer:
         self.producer = None
 
     def start(self):
-        self.producer = KafkaProducer()
+        # Parse bootstrap servers - can be comma-separated string
+        servers = settings.kafka_bootstrap_servers.split(',') if ',' in settings.kafka_bootstrap_servers else [settings.kafka_bootstrap_servers]
+        self.producer = KafkaProducer(
+            bootstrap_servers=servers
+        )
         logger.info("Kafka producer started")
 
     def send_review(self, review_data: dict):

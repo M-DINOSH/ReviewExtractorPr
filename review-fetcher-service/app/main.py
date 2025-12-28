@@ -8,6 +8,8 @@ from app.services.kafka_producer import kafka_producer
 from app.services.google_api import google_api_client
 from app.config import settings
 import structlog
+
+logger = structlog.get_logger()
 import logging
 
 # Configure logging
@@ -39,8 +41,11 @@ async def startup_event():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Start Kafka producer
-    kafka_producer.start()
+    # Start Kafka producer (optional for development)
+    try:
+        kafka_producer.start()
+    except Exception as e:
+        logger.warning("Failed to start Kafka producer, continuing without it", error=str(e))
 
 
 @app.on_event("shutdown")

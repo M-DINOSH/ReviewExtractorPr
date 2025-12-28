@@ -26,7 +26,7 @@ services:
   review-fetcher-dev:
     build: .
     ports:
-      - "8083:8000"
+      - "8084:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reviews
       - REDIS_URL=redis://redis:6379
