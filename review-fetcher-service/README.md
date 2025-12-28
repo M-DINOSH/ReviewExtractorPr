@@ -1,12 +1,11 @@
 # 🚀 Google Reviews Fetcher Microservice
 
-> **Production-Ready, Horizontally Scalable Service** for fetching Google Business Profile reviews with automatic processing and Kafka integration.
+> **Simplified, Production-Ready Service** for fetching Google Business Profile reviews with direct JSON responses and mock data support.
 
 [![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Redis](https://img.shields.io/badge/redis-%23DD0031.svg?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
-[![Kafka](https://img.shields.io/badge/Apache%20Kafka-000?style=for-the-badge&logo=apachekafka)](https://kafka.apache.org/)
 
 ---
 
@@ -17,62 +16,56 @@
 - [Quick Start (5 Minutes)](#-quick-start-5-minutes)
 - [Architecture Overview](#-architecture-overview)
 - [API Documentation](#-api-documentation)
+- [Data Modes](#-data-modes)
 - [Integration Examples](#-integration-examples)
 - [Deployment Options](#-deployment-options)
 - [Configuration](#-configuration)
-- [Database Schema](#-database-schema)
 - [Monitoring & Health Checks](#-monitoring--health-checks)
 - [Troubleshooting](#-troubleshooting)
 - [Development](#-development)
-- [Contributing](#-contributing)
 
 ---
 
 ## 🤔 What is This?
 
-The **Google Reviews Fetcher** is a complete microservice that automatically fetches, processes, and delivers Google Business Profile reviews to your applications. Think of it as a "Google Reviews API as a Service" that handles all the complexity of:
-
-- ✅ OAuth token management
-- ✅ Google API rate limiting and quotas
-- ✅ Data normalization and storage
-- ✅ Real-time message publishing
-- ✅ Scalable background processing
-- ✅ Error handling and retries
+The **Google Reviews Fetcher** is a streamlined microservice that fetches, processes, and delivers Google Business Profile reviews directly as JSON responses. It's designed for simplicity and reliability, supporting both real Google API data and comprehensive mock data for development and testing.
 
 ### Key Features
 
-- **🔄 One-Click Sync**: Send an access token, get all reviews automatically
-- **📊 Real-Time Processing**: Background jobs with progress tracking
-- **🏗️ Production Scalable**: 3+ replicas, connection pooling, load balancing
-- **🔗 Message-Driven**: Kafka integration for event-driven architectures
-- **🛡️ Fault Tolerant**: Automatic retries, circuit breakers, graceful degradation
-- **📈 High Performance**: Async processing, Redis caching, database optimization
+- **⚡ Direct Response**: Single API call returns complete review data instantly
+- **🎭 Dual Mode Support**: Switch between Google API and mock data seamlessly
+- **📊 Complete Data**: Accounts, locations, and reviews in structured JSON
+- **🏗️ Production Ready**: Docker containerization, health checks, error handling
+- **🔄 Random Selection**: Mock mode provides varied test data across requests
+- **🛡️ Fault Tolerant**: Graceful error handling and fallback mechanisms
 
 ### Use Cases
 
+- **Frontend Integration**: Direct API calls from web/mobile apps
 - **Business Intelligence**: Aggregate reviews across multiple locations
-- **Customer Service**: Real-time review monitoring and alerts
+- **Development Testing**: Mock data for reliable testing and demos
 - **Analytics Platforms**: Feed review data to dashboards and reports
 - **Marketing Tools**: Track sentiment and review trends
-- **Enterprise Apps**: White-label review management solutions
 
 ---
 
 ## 🔄 How It Works (The Flow)
 
-### The Complete Automated Workflow
+### The Simplified Direct Response Workflow
 
 ```
-1. User OAuth Flow
+1. Frontend Request
         ↓
-2. Frontend Calls API
+2. GET /sync/reviews?access_token=YOUR_TOKEN
         ↓
-3. POST /sync (access_token)
-        ↓
-4. 🎯 Automatic Processing Starts
+3. 🎯 Automatic Processing Starts
         ↓
    ┌─────────────────┐
-   │ Token Validation│ ← Validate OAuth token
+   │ Data Mode Check │ ← Check DATA_MODE setting
+   └─────────────────┘
+           ↓
+   ┌─────────────────┐
+   │ Provider Setup  │ ← Google API or Mock Data
    └─────────────────┘
            ↓
    ┌─────────────────┐
@@ -87,46 +80,56 @@ The **Google Reviews Fetcher** is a complete microservice that automatically fet
    │ Reviews Fetch   │ ← Get all reviews
    └─────────────────┘
            ↓
-   ┌─────────────────┐
-   │ Kafka Publish   │ ← Publish to message queue
-   └─────────────────┘
-           ↓
-5. Reviews Available via API
+4. Combined JSON Response
 ```
 
 ### What Happens Automatically
 
-1. **Token Validation**: Verifies your Google OAuth token is valid
-2. **Accounts Discovery**: Finds all Google Business accounts you have access to
-3. **Locations Mapping**: Gets every business location for those accounts
-4. **Reviews Collection**: Fetches all reviews for each location
-5. **Data Publishing**: Sends reviews to Kafka for your other services to consume
-6. **Progress Tracking**: Updates status so you can monitor progress
+1. **Mode Detection**: Service checks `DATA_MODE` environment variable
+2. **Provider Selection**: Chooses Google API or Mock data provider
+3. **Account Discovery**: Fetches business accounts (Google) or selects random account (Mock)
+4. **Location Mapping**: Gets all business locations for the selected account
+5. **Review Collection**: Fetches all reviews for each location
+6. **Data Combination**: Structures account, locations, and reviews into JSON response
 
 ### Real-World Example
 
 ```bash
-# User completes Google OAuth in your app
-# Your frontend gets: access_token = "ya29.abc123..."
-
-# Frontend calls microservice
-curl -X POST "http://your-service/sync" \
-  -H "Content-Type: application/json" \
-  -d '{"access_token": "ya29.abc123...", "client_id": "my_app"}'
-
-# Response: {"job_id": 42, "status": "pending"}
+# Frontend makes simple GET request
+curl "http://localhost:8084/sync/reviews?access_token=test_token_123"
 
 # Service automatically:
-# 1. Validates token ✓
-# 2. Fetches 3 business accounts ✓
-# 3. Gets 25 locations across accounts ✓
-# 4. Collects 500+ reviews ✓
-# 5. Publishes to Kafka ✓
+# 1. Detects DATA_MODE=mock ✓
+# 2. Selects MockDataProvider ✓
+# 3. Picks random account (e.g., "Amber Arch Catering") ✓
+# 4. Fetches 9 locations for that account ✓
+# 5. Collects 36 reviews across locations ✓
+# 6. Returns combined JSON instantly ✓
 
-# Your app can now:
-# - Check progress: GET /job/42
-# - Get reviews: GET /reviews/42
-# - Consume from Kafka topic: google.reviews.ingested
+# Response structure:
+{
+  "account": {
+    "account_id": "123456789",
+    "account_display_name": "Amber Arch Catering"
+  },
+  "locations": [
+    {
+      "location": {
+        "location_id": "LOC001",
+        "location_name": "Urban Kitchen",
+        "address": {...}
+      },
+      "reviews": [
+        {
+          "review_id": "REV001",
+          "rating": 5,
+          "comment": "Amazing food!",
+          "reviewer": {...}
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ---
@@ -148,7 +151,7 @@ cd review-fetcher-service
 ### Step 2: Start Everything
 
 ```bash
-# Start all services (PostgreSQL, Redis, Kafka, API)
+# Start all services (PostgreSQL, Redis, API)
 docker-compose --profile dev up -d
 
 # Wait 30 seconds for services to be ready
@@ -163,15 +166,15 @@ curl http://localhost:8084/health
 # Should return: {"status": "healthy"}
 ```
 
-### Step 4: Run the Demo
+### Step 4: Run the Test Script
 
 ```bash
-# Run complete demo (shows full flow)
-./demo.sh
+# Run comprehensive test (shows full flow)
+bash test_microservice.sh
 
 # This will:
-# - Start a review sync job
-# - Show automatic processing
+# - Test multiple access tokens
+# - Show random account selection
 # - Display fetched reviews
 # - Demonstrate the complete workflow
 ```
@@ -179,19 +182,11 @@ curl http://localhost:8084/health
 ### Step 5: Try the API
 
 ```bash
-# Start a sync job
-curl -X POST "http://localhost:8084/sync" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "access_token": "mock_token_demo_123",
-    "client_id": "demo_client"
-  }'
+# Get reviews with any access token (mock mode)
+curl "http://localhost:8084/sync/reviews?access_token=test_token_123"
 
-# Check progress
-curl http://localhost:8084/job/1
-
-# Get reviews
-curl http://localhost:8084/reviews/1
+# Try different tokens for different accounts
+curl "http://localhost:8084/sync/reviews?access_token=different_token_456"
 ```
 
 **🎉 You're Done!** The service is running and ready to fetch Google reviews.
@@ -208,26 +203,21 @@ curl http://localhost:8084/reviews/1
 └─────────────────────┬───────────────────────────────────────┘
                       │
            ┌──────────▼──────────┐
-           │  FastAPI Replicas   │ ← 3 instances for scaling
-           │  (Port 8000)        │
+           │  FastAPI Service    │ ← Single instance (simplified)
+           │  (Port 8084)        │
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
-           │ Background Tasks    │ ← Async processing
+           │ Data Provider       │ ← Google API or Mock Data
+           │ (Pluggable Interface)│
            └──────────┬──────────┘
-                      │
-          ┌───────────▼───────────┐
-          │                       │
-          │    Core Services      │
-          │                       │
-          └───────────┬───────────┘
                       │
      ┌────────────────┼────────────────┐
      │                │                │
 ┌────▼────┐      ┌────▼────┐      ┌────▼────┐
-│PostgreSQL│      │ Redis  │      │ Kafka   │
-│Database  │      │ Cache  │      │ Queue   │
-│(Port 5432)│      │(Port 6379)│    │(Port 9092)│
+│PostgreSQL│      │ Redis  │      │ Mock Data │
+│Database  │      │ Cache  │      │ Volume    │
+│(Port 5432)│      │(Port 6379)│    │(JSON files)│
 └─────────┘      └─────────┘      └─────────┘
 ```
 
@@ -235,10 +225,10 @@ curl http://localhost:8084/reviews/1
 
 | Component | Technology | Purpose | Scaling |
 |-----------|------------|---------|---------|
-| **API** | FastAPI (Python) | REST endpoints, async processing | 3+ replicas |
-| **Database** | PostgreSQL | Data persistence, ACID transactions | Connection pooling |
-| **Cache** | Redis | API response caching, performance | Single instance (dev) |
-| **Queue** | Kafka | Message publishing, decoupling | Single broker (dev) |
+| **API** | FastAPI (Python) | REST endpoints, async processing | Single instance (dev) |
+| **Database** | PostgreSQL | Data persistence (future use) | Connection pooling |
+| **Cache** | Redis | API response caching (future use) | Single instance (dev) |
+| **Mock Data** | JSON Files | Test data with relationships | Static files |
 | **Container** | Docker | Packaging, deployment | Resource limits |
 | **Orchestration** | Docker Compose | Service coordination | Scaling commands |
 
@@ -246,23 +236,23 @@ curl http://localhost:8084/reviews/1
 
 ```
 Request Flow:
-POST /sync → FastAPI → Background Task → Google APIs → Database → Kafka
+GET /sync/reviews → FastAPI → Data Provider → Google API / Mock Data → JSON Response
 
-Data Flow:
-Google APIs → Validation → Normalization → PostgreSQL → Kafka Topic
+Data Sources:
+Google APIs → Validation → Normalization → JSON Response
+Mock JSON Files → Random Selection → Relationship Mapping → JSON Response
 
 Response Flow:
-Job Status ← Polling ← Frontend ← API ← Background Updates
+Combined JSON ← Data Provider ← FastAPI ← Frontend
 ```
 
-### Scalability Features
+### Key Design Principles
 
-- **Horizontal Scaling**: Multiple API replicas behind load balancer
-- **Connection Pooling**: Database connections efficiently managed
-- **Async Processing**: Non-blocking I/O for high concurrency
-- **Background Jobs**: API responses immediate, processing async
-- **Caching**: Redis reduces external API calls by 90%
-- **Message Queue**: Decouples processing from delivery
+- **Simplicity First**: Direct responses eliminate complexity
+- **Provider Pattern**: Clean abstraction for data sources
+- **Mode Switching**: Environment variable controls data source
+- **Mock Data Quality**: Realistic test data with proper relationships
+- **Error Resilience**: Graceful handling of API failures
 
 ---
 
@@ -275,410 +265,232 @@ Production: https://your-domain.com/api/v1
 ```
 
 ### Authentication
-Currently: No authentication (add as needed for production)
+Currently: No authentication required (access tokens passed as query parameters)
 
 ### Endpoints
 
-#### 1. Start Review Sync
-**POST** `/sync`
+#### 1. Sync Reviews (Main Endpoint)
+**GET** `/sync/reviews`
 
-Initiates the complete automated review fetching flow.
+Fetches and returns complete review data directly as JSON.
 
-**Request Body:**
-```json
-{
-  "access_token": "ya29.your_oauth_token_here",
-  "client_id": "your_client_id",
-  "request_id": "optional_unique_request_id",
-  "correlation_id": "optional_correlation_id"
-}
-```
+**Query Parameters:**
+- `access_token` (required): OAuth access token or test token
 
 **Response (Success):**
 ```json
 {
-  "job_id": 42,
-  "status": "pending",
-  "message": "Continuous sync flow initiated - will automatically progress through all steps"
+  "account": {
+    "account_id": "string",
+    "account_display_name": "string",
+    "type": "BUSINESS",
+    "role": "OWNER",
+    "state": {
+      "status": "VERIFIED"
+    }
+  },
+  "locations": [
+    {
+      "location": {
+        "location_id": "string",
+        "location_name": "string",
+        "address": {
+          "locality": "string",
+          "region_code": "string",
+          "postal_code": "string",
+          "address_lines": ["string"]
+        },
+        "latlng": {
+          "latitude": 0.0,
+          "longitude": 0.0
+        }
+      },
+      "reviews": [
+        {
+          "review_id": "string",
+          "rating": 5,
+          "comment": "string",
+          "create_time": "2024-01-01T00:00:00Z",
+          "update_time": "2024-01-01T00:00:00Z",
+          "reviewer": {
+            "display_name": "string",
+            "profile_photo_url": "string"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
 **Response (Error):**
 ```json
 {
-  "detail": "Invalid access token format",
-  "error_code": "INVALID_TOKEN"
+  "detail": "Error message describing what went wrong"
 }
 ```
 
-**Example:**
-```bash
-curl -X POST "http://localhost:8084/sync" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "access_token": "mock_token_demo_123",
-    "client_id": "demo_app"
-  }'
-```
-
-#### 2. Check Job Status
-**GET** `/job/{job_id}`
-
-Monitor the progress of a sync job.
-
-**Response:**
-```json
-{
-  "job_id": 42,
-  "status": "completed",
-  "current_step": "completed",
-  "step_status": {
-    "token_validation": {
-      "status": "completed",
-      "timestamp": "2025-12-28T10:00:00Z"
-    },
-    "accounts_fetch": {
-      "status": "completed",
-      "message": "Fetched 3 accounts",
-      "timestamp": "2025-12-28T10:00:05Z"
-    },
-    "locations_fetch": {
-      "status": "completed",
-      "message": "Fetched 25 locations",
-      "timestamp": "2025-12-28T10:00:10Z"
-    },
-    "reviews_fetch": {
-      "status": "completed",
-      "message": "Fetched 500 reviews",
-      "timestamp": "2025-12-28T10:00:30Z"
-    },
-    "kafka_publish": {
-      "status": "completed",
-      "message": "Published 500 reviews to Kafka",
-      "timestamp": "2025-12-28T10:00:35Z"
-    }
-  }
-}
-```
-
-**Status Values:**
-- `pending`: Job created, waiting to start
-- `running`: Job in progress
-- `completed`: All steps finished successfully
-- `failed`: Job failed (check step_status for details)
-
-#### 3. Get Reviews (All)
-**GET** `/reviews`
-
-Get all reviews from the database.
-
-**Query Parameters:**
-- `limit` (optional): Number of reviews to return (default: 100)
-- `offset` (optional): Pagination offset (default: 0)
-
-**Response:**
-```json
-{
-  "total_reviews": 1500,
-  "reviews": [
-    {
-      "id": "review_123",
-      "location_id": "location_456",
-      "account_id": "account_789",
-      "rating": 5,
-      "comment": "Excellent service and friendly staff!",
-      "reviewer_name": "John Doe",
-      "review_time": "2025-12-28T09:15:00Z",
-      "job_id": 42
-    }
-  ]
-}
-```
-
-#### 4. Get Reviews (By Job)
-**GET** `/reviews/{job_id}`
-
-Get reviews for a specific sync job.
-
-**Response:** Same as `/reviews` but filtered by job_id.
-
-#### 5. Health Check
+#### 2. Health Check
 **GET** `/health`
 
-Check if the service is healthy.
+Returns service health status.
 
 **Response:**
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2025-12-28T10:00:00Z",
-  "version": "1.0.0"
+  "status": "healthy"
 }
 ```
 
 ---
 
-## 🔗 Integration Examples
+## 🎭 Data Modes
 
-### Frontend JavaScript (React/Vue/Angular)
+The service supports two data modes, controlled by the `DATA_MODE` environment variable.
 
-```javascript
-// 1. Start sync after OAuth
-const startReviewSync = async (accessToken, clientId) => {
-  try {
-    const response = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: accessToken,
-        client_id: clientId,
-        request_id: `sync_${Date.now()}`,
-        correlation_id: `session_${Date.now()}`
-      })
-    });
+### Google API Mode (`DATA_MODE=google`)
 
-    const result = await response.json();
-    return result.job_id;
-  } catch (error) {
-    console.error('Sync failed:', error);
-  }
-};
+- **Purpose**: Production use with real Google Business Profile data
+- **Requirements**: Valid OAuth access tokens from Google
+- **Data Source**: Google Business Profile API
+- **Rate Limits**: Subject to Google's API quotas and limits
+- **Authentication**: Requires proper OAuth flow implementation
 
-// 2. Poll for completion
-const checkJobStatus = async (jobId) => {
-  const response = await fetch(`/api/job/${jobId}`);
-  return await response.json();
-};
+### Mock Data Mode (`DATA_MODE=mock`)
 
-// 3. Get reviews when complete
-const getReviews = async (jobId) => {
-  const response = await fetch(`/api/reviews/${jobId}`);
-  return await response.json();
-};
+- **Purpose**: Development, testing, and demonstrations
+- **Requirements**: Any access token (ignored, tokens just trigger different random accounts)
+- **Data Source**: Pre-loaded JSON files with realistic test data
+- **Content**: 130 accounts, 500 locations, 710 reviews with proper relationships
+- **Behavior**: Each request returns a randomly selected account with its locations and reviews
 
-// Usage in your app
-const handleOAuthSuccess = async (accessToken) => {
-  const jobId = await startReviewSync(accessToken, 'my_app');
+### Switching Between Modes
 
-  // Show loading spinner
-  setLoading(true);
+```bash
+# Set environment variable
+export DATA_MODE=mock  # or "google"
 
-  // Poll every 5 seconds
-  const pollInterval = setInterval(async () => {
-    const status = await checkJobStatus(jobId);
-
-    if (status.status === 'completed') {
-      clearInterval(pollInterval);
-      setLoading(false);
-
-      const reviews = await getReviews(jobId);
-      displayReviews(reviews.reviews);
-    } else if (status.status === 'failed') {
-      clearInterval(pollInterval);
-      setLoading(false);
-      showError('Review sync failed');
-    }
-  }, 5000);
-};
+# Restart service
+docker-compose --profile dev down
+docker-compose --profile dev up -d
 ```
 
-### Backend Python (Flask/Django/FastAPI)
+### Mock Data Structure
+
+The mock data includes:
+- **130 Business Accounts**: Various restaurant and service businesses
+- **500 Locations**: Distributed across different cities and regions
+- **710 Reviews**: Realistic ratings (1-5 stars) and comments
+- **Proper Relationships**: Accounts → Locations → Reviews hierarchy maintained
+- **Random Selection**: Different access tokens return different accounts
+
+---
+
+## 🔗 Integration Examples
+
+### JavaScript/React Frontend
+
+```javascript
+// Simple fetch integration
+async function fetchReviews(accessToken) {
+  const response = await fetch(
+    `http://localhost:8084/sync/reviews?access_token=${accessToken}`
+  );
+  const data = await response.json();
+  return data;
+}
+
+// Usage
+const reviewsData = await fetchReviews('your_oauth_token');
+console.log('Account:', reviewsData.account.account_display_name);
+console.log('Locations:', reviewsData.locations.length);
+console.log('Total Reviews:', reviewsData.locations.reduce(
+  (sum, loc) => sum + loc.reviews.length, 0
+));
+```
+
+### Python Backend Integration
 
 ```python
 import requests
-import time
 
-def sync_google_reviews(access_token: str, service_url: str):
-    """Sync reviews and return them"""
-    # Start sync
-    response = requests.post(f"{service_url}/sync", json={
-        "access_token": access_token,
-        "client_id": "my_backend_service",
-        "request_id": f"sync_{int(time.time())}"
-    })
-
-    if response.status_code != 200:
-        raise Exception("Failed to start sync")
-
-    job_id = response.json()["job_id"]
-
-    # Poll for completion
-    while True:
-        status_response = requests.get(f"{service_url}/job/{job_id}")
-        status = status_response.json()
-
-        if status["status"] == "completed":
-            break
-        elif status["status"] == "failed":
-            raise Exception("Sync job failed")
-
-        time.sleep(5)  # Wait 5 seconds
-
-    # Get reviews
-    reviews_response = requests.get(f"{service_url}/reviews/{job_id}")
-    return reviews_response.json()["reviews"]
+def get_reviews(access_token):
+    url = f"http://localhost:8084/sync/reviews"
+    params = {"access_token": access_token}
+    response = requests.get(url, params=params)
+    return response.json()
 
 # Usage
-reviews = sync_google_reviews("ya29.token_here", "http://localhost:8084")
-for review in reviews:
-    print(f"{review['rating']} stars: {review['comment']}")
+data = get_reviews("your_token")
+print(f"Business: {data['account']['account_display_name']}")
+for location in data['locations']:
+    print(f"Location: {location['location']['location_name']}")
+    print(f"Reviews: {len(location['reviews'])}")
 ```
 
-### Kafka Consumer (Real-time Processing)
+### cURL Testing
 
-```python
-from kafka import KafkaConsumer
-import json
+```bash
+# Basic request
+curl "http://localhost:8084/sync/reviews?access_token=test_123"
 
-# Consume review events
-consumer = KafkaConsumer(
-    'google.reviews.ingested',
-    bootstrap_servers=['localhost:9092'],
-    auto_offset_reset='earliest',
-    group_id='review_processor'
-)
+# Pretty print JSON
+curl "http://localhost:8084/sync/reviews?access_token=test_123" | jq '.'
 
-for message in consumer:
-    review = json.loads(message.value.decode('utf-8'))
+# Extract specific data
+curl "http://localhost:8084/sync/reviews?access_token=test_123" | jq '.account.account_display_name'
 
-    # Process review in real-time
-    print(f"New review: {review['rating']} stars")
-    print(f"Comment: {review['comment']}")
-
-    # Save to your database, send notifications, etc.
-    save_to_database(review)
-    send_notification(review)
-```
-
-### Mobile App (React Native/Flutter)
-
-```javascript
-// React Native example
-const syncReviews = async (accessToken) => {
-  try {
-    const response = await fetch('https://your-api.com/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: accessToken,
-        client_id: 'mobile_app',
-        request_id: `mobile_${Date.now()}`
-      })
-    });
-
-    const result = await response.json();
-
-    // Store job_id for tracking
-    await AsyncStorage.setItem('current_job_id', result.job_id.toString());
-
-    return result.job_id;
-  } catch (error) {
-    Alert.alert('Error', 'Failed to start review sync');
-  }
-};
+# Count locations and reviews
+curl "http://localhost:8084/sync/reviews?access_token=test_123" | jq '.locations | length, (.locations | map(.reviews | length) | add)'
 ```
 
 ---
 
 ## 🚀 Deployment Options
 
-### Option 1: Docker Compose (Recommended for Development)
+### Development (Docker Compose)
 
 ```bash
-# Development mode (with ports exposed)
+# Start development stack
 docker-compose --profile dev up -d
 
-# Production mode (scalable)
-docker-compose up -d --scale review-fetcher=3
-
 # View logs
-docker-compose logs -f review-fetcher-dev
+docker-compose logs -f review-fetcher
 
 # Stop services
 docker-compose down
 ```
 
-### Option 2: Kubernetes (Production)
-
-```yaml
-# kubernetes/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: review-fetcher
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: review-fetcher
-  template:
-    metadata:
-      labels:
-        app: review-fetcher
-    spec:
-      containers:
-      - name: review-fetcher
-        image: your-registry/review-fetcher:latest
-        ports:
-        - containerPort: 8000
-        env:
-        - name: DATABASE_URL
-          value: "postgresql+asyncpg://user:pass@postgres:5432/reviews"
-        - name: REDIS_URL
-          value: "redis://redis:6379"
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka:9092"
-        resources:
-          limits:
-            cpu: "1"
-            memory: "1Gi"
-          requests:
-            cpu: "0.5"
-            memory: "512Mi"
-```
-
-### Option 3: Cloud Platforms
-
-#### AWS (ECS Fargate)
-```bash
-# Build and push to ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin your-account.dkr.ecr.us-east-1.amazonaws.com
-docker build -t review-fetcher .
-docker tag review-fetcher:latest your-account.dkr.ecr.us-east-1.amazonaws.com/review-fetcher:latest
-docker push your-account.dkr.ecr.us-east-1.amazonaws.com/review-fetcher:latest
-
-# Deploy to ECS (use AWS Console or CLI)
-```
-
-#### Google Cloud Run
-```bash
-# Build and deploy
-gcloud builds submit --tag gcr.io/your-project/review-fetcher
-gcloud run deploy review-fetcher \
-  --image gcr.io/your-project/review-fetcher \
-  --platform managed \
-  --allow-unauthenticated \
-  --set-env-vars="DATABASE_URL=your_db_url,REDIS_URL=your_redis_url"
-```
-
-#### Railway/DigitalOcean App Platform
-- Connect your GitHub repo
-- Set environment variables
-- Deploy automatically
-
-### Option 4: Manual Deployment
+### Production (Docker)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Build production image
+docker build -t review-fetcher:latest .
 
-# Set environment variables
-export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/reviews"
-export REDIS_URL="redis://localhost:6379"
-export KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
+# Run with environment variables
+docker run -d \
+  --name review-fetcher \
+  -p 8084:8084 \
+  -e DATA_MODE=google \
+  -e DATABASE_URL="postgresql+asyncpg://..." \
+  -e REDIS_URL="redis://..." \
+  review-fetcher:latest
+```
 
-# Run the service
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+### Environment Variables
+
+```bash
+# Data Mode
+DATA_MODE=google          # "google" or "mock"
+
+# Database (required for future features)
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/reviews
+
+# Redis (required for future features)
+REDIS_URL=redis://localhost:6379
+
+# Logging
+LOG_LEVEL=INFO           # DEBUG, INFO, WARNING, ERROR
 ```
 
 ---
@@ -689,281 +501,101 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://user:password@db:5432/reviews` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://redis:6379` | Redis connection string |
-| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | Kafka broker addresses |
-| `MOCK_MODE` | `false` | Use mock data instead of real Google APIs |
-| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `POOL_SIZE` | `20` | Database connection pool size |
-| `MAX_OVERFLOW` | `30` | Max overflow connections |
+| `DATA_MODE` | `google` | Data source: "google" or "mock" |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection string |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `LOG_LEVEL` | `INFO` | Logging level |
 
-### Docker Compose Configuration
+### Docker Compose Profiles
 
-```yaml
-# docker-compose.yml
-version: '3.8'
-services:
-  review-fetcher:
-    build: .
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reviews
-      - REDIS_URL=redis://redis:6379
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - MOCK_MODE=true  # For development
-    ports:
-      - "8084:8000"
-    depends_on:
-      - db
-      - redis
-      - kafka
+- **dev**: Development stack with mock data volume
+- **prod**: Production-ready configuration
+
+### Mock Data Volume
+
+The mock data is mounted as a Docker volume:
 ```
-
-### Production Environment Variables
-
-```bash
-# .env.production
-DATABASE_URL=postgresql+asyncpg://prod_user:prod_pass@prod-db-host:5432/reviews
-REDIS_URL=redis://prod-redis-host:6379
-KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
-LOG_LEVEL=WARNING
-POOL_SIZE=50
-MAX_OVERFLOW=50
+volumes:
+  - ./mock_data:/app/mock_data:ro
 ```
-
----
-
-## 🗄️ Database Schema
-
-### Tables Overview
-
-```
-sync_jobs (Job tracking)
-├── id (Primary Key)
-├── status (pending/running/completed/failed)
-├── current_step (Current processing step)
-├── created_at, updated_at (Timestamps)
-└── step_status (JSON: detailed step information)
-
-accounts (Google Business accounts)
-├── id (Primary Key)
-├── account_id (Google account ID)
-├── name (Account name)
-├── client_id (Your client identifier)
-└── created_at (Timestamp)
-
-locations (Business locations)
-├── id (Primary Key)
-├── location_id (Google location ID)
-├── account_id (Foreign Key → accounts)
-├── name (Location name)
-├── address (Full address)
-├── phone (Phone number)
-└── created_at (Timestamp)
-
-reviews (Individual reviews)
-├── id (Primary Key)
-├── review_id (Google review ID)
-├── location_id (Foreign Key → locations)
-├── account_id (Foreign Key → accounts)
-├── rating (1-5 stars)
-├── comment (Review text)
-├── reviewer_name (Reviewer name)
-├── review_time (When review was written)
-├── job_id (Foreign Key → sync_jobs)
-└── created_at (Timestamp)
-```
-
-### Key Relationships
-
-- **1 Account** → **Many Locations** → **Many Reviews**
-- **1 Job** → **Many Reviews** (tracking which sync created which reviews)
-- **Unique Constraints**: Prevents duplicate accounts/locations/reviews
-
-### Indexes
-
-- `reviews(location_id, review_time)` - Fast location-specific queries
-- `reviews(job_id)` - Fast job-specific review retrieval
-- `accounts(client_id)` - Fast client account lookups
-- `locations(account_id)` - Fast account location lookups
 
 ---
 
 ## 📊 Monitoring & Health Checks
 
-### Health Endpoints
+### Health Endpoint
 
 ```bash
-# Service health
-GET /health
-# {"status": "healthy", "timestamp": "...", "version": "1.0.0"}
-
-# Database connectivity
-GET /health/db
-
-# Redis connectivity
-GET /health/redis
-
-# Kafka connectivity
-GET /health/kafka
+curl http://localhost:8084/health
+# Returns: {"status": "healthy"}
 ```
 
-### Monitoring Metrics
+### Service Logs
 
-Track these key metrics:
+```bash
+# View application logs
+docker-compose logs -f review-fetcher
 
-- **Request Rate**: API calls per minute
-- **Error Rate**: Failed requests percentage
-- **Job Success Rate**: Completed vs failed sync jobs
-- **Processing Time**: Average time per sync job
-- **Database Connections**: Pool usage and wait times
-- **Memory/CPU Usage**: Per replica resource consumption
-
-### Logging
-
-Structured JSON logging with correlation IDs:
-
-```json
-{
-  "timestamp": "2025-12-28T10:00:00Z",
-  "level": "INFO",
-  "logger": "app.services.sync_service",
-  "message": "Token validation completed",
-  "correlation_id": "session_123",
-  "job_id": 42,
-  "duration_ms": 150
-}
+# View all service logs
+docker-compose logs -f
 ```
 
-### Recommended Monitoring Stack
+### Docker Status
 
-- **Prometheus**: Metrics collection
-- **Grafana**: Dashboards and visualization
-- **ELK Stack**: Log aggregation and analysis
-- **AlertManager**: Alert notifications
+```bash
+# Check container status
+docker-compose ps
+
+# Check resource usage
+docker stats
+```
 
 ---
 
 ## 🔧 Troubleshooting
 
-### Common Issues
+### Service Won't Start
 
-#### Service Won't Start
-
-**Problem:** `docker-compose up` fails
-
-**Solutions:**
 ```bash
-# Check Docker is running
-docker ps
+# Check Docker status
+docker-compose ps
 
-# Check logs
-docker-compose logs
+# View startup logs
+docker-compose logs review-fetcher
 
-# Clean restart
-docker-compose down -v
-docker-compose up -d
-
-# Check port conflicts
-lsof -i :8084
+# Restart service
+docker-compose restart review-fetcher
 ```
 
-#### Sync Jobs Fail
+### API Returns Errors
 
-**Problem:** Job status shows "failed"
-
-**Check:**
 ```bash
-# Get detailed error
-curl http://localhost:8084/job/{job_id}
-
-# Check service logs
-docker-compose logs review-fetcher-dev | grep "job_id"
-
-# Common causes:
-# - Invalid access token
-# - Google API quota exceeded
-# - Network connectivity issues
-# - Database connection problems
-```
-
-#### No Reviews Returned
-
-**Problem:** Sync completes but no reviews found
-
-**Check:**
-```bash
-# Verify token has business access
-curl -H "Authorization: Bearer {token}" \
-  https://mybusiness.googleapis.com/v4/accounts
-
-# Check mock mode
-echo $MOCK_MODE  # Should be "true" for testing
-
-# Verify database
-docker-compose exec db psql -U user -d reviews -c "SELECT COUNT(*) FROM reviews;"
-```
-
-#### High Memory/CPU Usage
-
-**Problem:** Service consuming too many resources
-
-**Solutions:**
-```bash
-# Check active connections
-docker-compose exec db psql -U user -d reviews -c "SELECT count(*) FROM pg_stat_activity;"
-
-# Monitor background tasks
+# Test health endpoint
 curl http://localhost:8084/health
 
-# Scale down replicas
-docker-compose up -d --scale review-fetcher=1
+# Test with mock data
+curl "http://localhost:8084/sync/reviews?access_token=test"
+
+# Check logs for errors
+docker-compose logs -f review-fetcher
 ```
 
-#### Kafka Connection Issues
-
-**Problem:** Messages not publishing to Kafka
-
-**Check:**
-```bash
-# Kafka broker status
-docker-compose exec kafka kafka-broker-api-versions --bootstrap-server localhost:9092
-
-# Topic exists
-docker-compose exec kafka kafka-topics --list --bootstrap-server localhost:9092
-
-# Consumer lag
-docker-compose exec kafka kafka-consumer-groups --describe --group review_processor --bootstrap-server localhost:9092
-```
-
-### Debug Commands
+### Mock Data Issues
 
 ```bash
-# View all logs
-docker-compose logs -f
+# Verify mock data volume is mounted
+docker-compose exec review-fetcher ls -la /app/mock_data/
 
-# Check container resource usage
-docker stats
-
-# Inspect container
-docker-compose exec review-fetcher-dev bash
-
-# Database queries
-docker-compose exec db psql -U user -d reviews
-
-# Redis commands
-docker-compose exec redis redis-cli
-
-# Kafka commands
-docker-compose exec kafka kafka-console-consumer --topic google.reviews.ingested --from-beginning --bootstrap-server localhost:9092
+# Check file permissions
+docker-compose exec review-fetcher cat /app/mock_data/accounts.json | head -5
 ```
 
-### Getting Help
+### Common Issues
 
-1. **Check Logs**: `docker-compose logs review-fetcher-dev`
-2. **Health Check**: `curl http://localhost:8084/health`
-3. **Database**: Check table counts and recent records
-4. **Network**: Verify all services can communicate
-5. **Resources**: Monitor CPU/memory usage
+1. **Port 8084 already in use**: Change port in docker-compose.yml
+2. **Mock data not loading**: Check volume mount and file permissions
+3. **Database connection failed**: Verify PostgreSQL is running
+4. **Memory issues**: Increase Docker memory allocation
 
 ---
 
@@ -976,27 +608,14 @@ docker-compose exec kafka kafka-console-consumer --topic google.reviews.ingested
 git clone <repo-url>
 cd review-fetcher-service
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate     # Windows
-
-# Install dependencies
+# Install dependencies (if running outside Docker)
 pip install -r requirements.txt
 
-# Set environment variables
-cp .env.example .env
-# Edit .env with your settings
+# Run tests
+python -m pytest
 
-# Run database migrations (if any)
-# alembic upgrade head
-
-# Start dependencies with Docker
-docker-compose up -d db redis kafka
-
-# Run the service
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Start development server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8084
 ```
 
 ### Project Structure
@@ -1004,171 +623,55 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 review-fetcher-service/
 ├── app/
-│   ├── main.py              # FastAPI app and routes
-│   ├── config.py            # Configuration settings
-│   ├── database.py          # Database connection and setup
-│   ├── models.py            # SQLAlchemy models
-│   ├── schemas.py           # Pydantic schemas
-│   ├── services/
-│   │   ├── google_api.py    # Google API client
-│   │   ├── sync_service.py  # Core sync logic
-│   │   ├── kafka_producer.py# Kafka message publishing
-│   │   └── oauth_service.py # OAuth handling
-│   └── workers/
-│       └── tasks.py         # Background task definitions
-├── tests/                   # Unit and integration tests
-├── docker-compose.yml       # Service orchestration
+│   ├── main.py              # FastAPI application
+│   ├── config.py            # Environment configuration
+│   ├── models.py            # Database models
+│   ├── schemas.py           # API schemas
+│   └── services/
+│       ├── data_providers.py    # Data provider interface
+│       ├── simple_sync_service.py # Main sync logic
+│       └── google_api.py         # Google API client
+├── mock_data/               # Test data files
+├── docker-compose.yml       # Container orchestration
 ├── Dockerfile              # Container definition
-├── requirements.txt        # Python dependencies
-├── demo.sh                 # Complete demo script
-└── README.md              # This file
+└── requirements.txt        # Python dependencies
 ```
 
-### Running Tests
+### Adding New Features
+
+1. **New Data Provider**: Implement `DataProvider` interface
+2. **New Endpoint**: Add route in `main.py`
+3. **New Model**: Define in `models.py` and `schemas.py`
+4. **Configuration**: Add to `config.py` with environment variable
+
+### Testing
 
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio httpx
+# Run the test script
+bash test_microservice.sh
 
-# Run all tests
-pytest
+# Manual API testing
+curl "http://localhost:8084/sync/reviews?access_token=test"
 
-# Run with coverage
-pytest --cov=app --cov-report=html
-
-# Run specific test
-pytest tests/test_sync.py -v
+# Check API documentation
+open http://localhost:8084/docs
 ```
-
-### Code Quality
-
-```bash
-# Format code
-black app/ tests/
-
-# Lint code
-flake8 app/ tests/
-
-# Type checking
-mypy app/
-
-# Security check
-bandit -r app/
-```
-
-### API Documentation (Auto-generated)
-
-When running locally, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
-
----
-
-## 🤝 Contributing
-
-### Development Workflow
-
-1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feature/your-feature`
-3. **Make** your changes with tests
-4. **Run** tests: `pytest`
-5. **Format** code: `black app/ tests/`
-6. **Commit** changes: `git commit -m "Add your feature"`
-7. **Push** to branch: `git push origin feature/your-feature`
-8. **Create** Pull Request
-
-### Code Standards
-
-- **Python**: PEP 8 compliant
-- **Formatting**: Black with 88 character line length
-- **Imports**: Sorted with isort
-- **Types**: Full type hints required
-- **Tests**: 80%+ coverage required
-- **Documentation**: Docstrings for all public functions
-
-### Commit Message Format
-
-```
-type(scope): description
-
-[optional body]
-
-[optional footer]
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-
-### Pull Request Requirements
-
-- [ ] Tests pass: `pytest`
-- [ ] Code formatted: `black app/ tests/`
-- [ ] Linting passes: `flake8 app/ tests/`
-- [ ] Type checking: `mypy app/`
-- [ ] Documentation updated
-- [ ] Self-review completed
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ---
 
-## 🆘 Support
-
-### Getting Help
-
-1. **📖 Documentation**: Check this README first
-2. **🔍 Search Issues**: Look for similar problems
-3. **🐛 Create Issue**: For bugs or feature requests
-4. **💬 Discussions**: For questions and general discussion
-
-### Support Channels
-
-- **📧 Email**: your-support@company.com
-- **💬 Slack**: #review-fetcher channel
-- **📋 Issues**: GitHub Issues for bugs/features
-- **📚 Wiki**: Internal documentation
-
-### Commercial Support
-
-For enterprise support, custom deployments, or training:
-- Contact: enterprise@company.com
-- Phone: +1 (555) 123-4567
-
----
-
-## 🎯 Roadmap
-
-### ✅ Completed (v1.0)
-- [x] Complete automated sync flow
-- [x] PostgreSQL persistence
-- [x] Redis caching
-- [x] Kafka message publishing
-- [x] Docker containerization
-- [x] Horizontal scaling (3 replicas)
-- [x] Comprehensive API
-- [x] Mock data for testing
-
-### 🚧 In Progress
-- [ ] Real Google API integration
-- [ ] OAuth2 token refresh
-- [ ] Advanced error handling
-- [ ] Performance monitoring
-
-### 🔮 Planned
-- [ ] Multi-region deployment
-- [ ] Advanced analytics
-- [ ] Machine learning integration
-- [ ] Mobile SDK
-- [ ] White-label solution
-
----
-
-**🎉 Happy Reviewing!** Your Google Reviews are now automatically fetched, processed, and delivered to your applications.
-
-*Built with ❤️ for scalable review data processing*</content>
-<parameter name="filePath">/Users/dinoshm/Desktop/applic/ReviewExtractorPr/review-fetcher-service/README.md
-
+**🎉 Happy Reviewing!** Your Google Reviews Fetcher is ready to serve review data to your applications.
+                      │

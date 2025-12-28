@@ -4,8 +4,7 @@ from app.database import engine, get_db, async_session
 from app.models import SyncJob, Base
 from app.schemas import SyncRequest, SyncResponse, JobStatusResponse, ReviewsListResponse
 from app.workers.tasks import sync_reviews_task
-from app.services.kafka_producer import kafka_producer
-from app.services.google_api import google_api_client
+from app.services.simple_sync_service import SimpleSyncService
 from app.config import settings
 import structlog
 
@@ -41,16 +40,9 @@ async def startup_event():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Start Kafka producer (optional for development)
-    try:
-        kafka_producer.start()
-    except Exception as e:
-        logger.warning("Failed to start Kafka producer, continuing without it", error=str(e))
-
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    kafka_producer.stop()
     await google_api_client.close()
 
 
@@ -74,8 +66,7 @@ async def sync_reviews(
                 "token_validation": {"status": "pending", "timestamp": None, "message": None},
                 "accounts_fetch": {"status": "pending", "timestamp": None, "message": None},
                 "locations_fetch": {"status": "pending", "timestamp": None, "message": None},
-                "reviews_fetch": {"status": "pending", "timestamp": None, "message": None},
-                "kafka_publish": {"status": "pending", "timestamp": None, "message": None}
+                "reviews_fetch": {"status": "pending", "timestamp": None, "message": None}
             }
         )
         db.add(sync_job)
@@ -221,3 +212,35 @@ async def get_reviews_by_job(job_id: int, limit: int = 100, offset: int = 0):
         )
     finally:
         await db.close()
+
+@app.get("/sync/reviews")
+async def sync_reviews(access_token: str):
+    """
+    Simplified sync endpoint that returns combined JSON data directly.
+    
+    This endpoint provides a streamlined flow that:
+    1. Accepts only an access_token
+    2. Automatically fetches accounts, locations, and reviews
+    3. Returns combined JSON without database persistence or Kafka
+    
+    Query Parameters:
+    - access_token: OAuth access token (required)
+    
+    Returns:
+    {
+        "account": {...},
+        "locations": [
+            {
+                "location": {...},
+                "reviews": [...]
+            }
+        ]
+    }
+    """
+    try:
+        service = SimpleSyncService()
+        result = await service.sync_reviews(access_token)
+        return result
+    except Exception as e:
+        logger.error("Sync reviews endpoint failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
