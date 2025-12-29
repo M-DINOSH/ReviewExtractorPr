@@ -1,0 +1,20 @@
+# Core dependencies
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
+
+# Sentiment analysis
+vaderSentiment==3.3.2
+
+# Rate limiting
+slowapi==0.1.9
+
+# Logging
+python-json-logger==4.0.0
+
+# Metrics (optional)
+prometheus-client==0.23.1
+
+# System monitoring
+psutil==7.2.0

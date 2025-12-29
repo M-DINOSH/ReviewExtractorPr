@@ -14,6 +14,7 @@
 - [What is This?](#-what-is-this)
 - [How It Works (The Flow)](#-how-it-works-the-flow)
 - [Quick Start (5 Minutes)](#-quick-start-5-minutes)
+- [Run Script](#-run-script)
 - [Architecture Overview](#-architecture-overview)
 - [API Documentation](#-api-documentation)
 - [Data Modes](#-data-modes)
@@ -141,6 +142,42 @@ curl "http://localhost:8084/sync/reviews?access_token=test_token_123"
 - **Docker & Docker Compose** (install from [docker.com](https://docker.com))
 - **Git** (install from [git-scm.com](https://git-scm.com))
 
+### 🚀 Quick Run Script (Recommended)
+
+The easiest way to get started is using the `run.sh` script that handles everything automatically:
+
+```bash
+# Make script executable (first time only)
+chmod +x run.sh
+
+# Run with mock data (development)
+./run.sh
+
+# Run with custom access token
+./run.sh "your_access_token_here"
+
+# Run with Google API mode
+./run.sh "ya29.your_oauth_token" google
+
+# Show help
+./run.sh --help
+```
+
+**What the script does:**
+- ✅ Stops any existing services
+- ✅ Starts services in your chosen mode
+- ✅ Waits for services to be ready
+- ✅ Tests the API with your token
+- ✅ Shows formatted results
+
+**Modes:**
+- **Mock**: Uses test data (130 accounts, 500 locations, 710 reviews)
+- **Google**: Uses real Google Business Profile API (requires valid OAuth token)
+
+---
+
+### Manual Setup (Alternative)
+
 ### Step 1: Clone & Navigate
 
 ```bash
@@ -190,6 +227,158 @@ curl "http://localhost:8084/sync/reviews?access_token=different_token_456"
 ```
 
 **🎉 You're Done!** The service is running and ready to fetch Google reviews.
+
+---
+
+## 🚀 Run Script
+
+The `run.sh` script provides the easiest way to run and test your microservice with different modes and access tokens.
+
+### Features
+
+- **🎭 Dual Mode Support**: Switch between mock data and Google API modes
+- **🔄 Automatic Setup**: Handles Docker orchestration and service management
+- **🧪 Built-in Testing**: Tests API endpoints and displays results
+- **🎨 Colored Output**: Clear status messages and formatted JSON responses
+- **⚡ One-Command**: Single script for complete workflow
+
+### Usage
+
+```bash
+# Make executable (first time only)
+chmod +x run.sh
+
+# Basic usage - mock mode with default token
+./run.sh
+
+# Custom access token (mock mode)
+./run.sh "your_access_token_here"
+
+# Google API mode (real data)
+./run.sh "ya29.your_oauth_token" google
+
+# Show help
+./run.sh --help
+```
+
+### What It Does
+
+1. **Service Management**
+   - Stops any existing containers
+   - Starts fresh services based on selected mode
+   - Sets appropriate environment variables
+
+2. **Health Checks**
+   - Waits for services to be ready
+   - Verifies API endpoints are responding
+
+3. **API Testing**
+   - Calls `/health` endpoint
+   - Tests `/sync/reviews` with your access token
+   - Displays formatted JSON response
+
+4. **Results Display**
+   - Shows account information
+   - Lists locations with review counts
+   - Displays sample reviews
+
+### Mode Comparison
+
+| Feature | Mock Mode | Google Mode |
+|---------|-----------|-------------|
+| **Data Source** | JSON files (130 accounts) | Google Business API |
+| **Authentication** | Any token works | Valid OAuth token required |
+| **Performance** | Instant response | Subject to API limits |
+| **Use Case** | Development/Testing | Production |
+| **Data Variety** | Random account selection | Real business data |
+
+### Example Output
+
+**Mock Mode:**
+```bash
+🚀 Google Reviews Fetcher Microservice
+======================================
+Access Token: test_token_123
+Mode: mock
+
+ℹ️  Starting services in mock mode...
+✅ Services are ready!
+ℹ️  Testing API with access token...
+
+Health check: {"status":"healthy"}
+
+Fetching reviews with token: test_token_123
+Mode: mock
+
+API Response:
+{
+  "account": {
+    "account_display_name": "Nomad Nom Noms"
+  },
+  "locations": [
+    {
+      "location": {"location_name": "Vedic Plate - Varanasi"},
+      "reviews": [...]
+    }
+  ]
+}
+✅ Microservice is running successfully!
+```
+
+**Google Mode:**
+```bash
+🚀 Google Reviews Fetcher Microservice
+======================================
+Access Token: ya29.token
+Mode: google
+
+ℹ️  Starting services in google mode...
+✅ Services are ready!
+ℹ️  Testing API with access token...
+
+API Response: [Real Google Business data]
+```
+
+### Advanced Usage
+
+```bash
+# Development testing
+./run.sh "dev_token_001" mock
+
+# Production deployment testing
+./run.sh "ya29.production_token" google
+
+# CI/CD integration
+./run.sh "$OAUTH_TOKEN" google
+
+# Multiple test runs
+for token in "token1" "token2" "token3"; do
+  ./run.sh "$token" mock
+done
+```
+
+### Troubleshooting
+
+**Script not executable:**
+```bash
+chmod +x run.sh
+```
+
+**Docker not running:**
+```bash
+# Start Docker first
+# Then run: ./run.sh
+```
+
+**Services fail to start:**
+```bash
+# Check logs
+docker-compose logs review-fetcher-dev
+
+# Clean restart
+docker-compose down -v
+./run.sh
+```
 
 ---
 
