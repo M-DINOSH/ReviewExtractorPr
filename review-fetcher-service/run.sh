@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# 🚀 Google Reviews Fetcher - Run Script
-# Usage: ./run.sh [access_token] [mode]
-# Modes: mock (default), google
-# Example: ./run.sh "ya29.token_here" google
+# 🚀 Google Reviews Fetcher - Production Run Script
+# Usage: ./run.sh [access_token]
+# Requires valid Google OAuth token starting with 'ya29'
 
 set -e  # Exit on any error
 
@@ -15,8 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-ACCESS_TOKEN=${1:-"test_token_default"}
-MODE=${2:-"mock"}
+ACCESS_TOKEN=${1:-""}
 SERVICE_NAME="review-fetcher-dev"
 
 # Function to print colored output
@@ -44,30 +42,35 @@ check_docker() {
     fi
 }
 
+# Function to validate access token
+validate_token() {
+    if [ -z "$ACCESS_TOKEN" ]; then
+        print_error "Access token is required. Usage: ./run.sh 'ya29.your_oauth_token'"
+        print_info "Get your OAuth token from Google Cloud Console with Business Profile API access"
+        exit 1
+    fi
+
+    if [[ ! $ACCESS_TOKEN == ya29.* ]]; then
+        print_error "Invalid token format. Token must start with 'ya29.' (Google OAuth token)"
+        print_info "Get a proper OAuth token from Google Cloud Console"
+        exit 1
+    fi
+}
+
 # Function to stop existing services
 stop_services() {
     print_info "Stopping any existing services..."
     docker-compose down >/dev/null 2>&1 || true
 }
 
-# Function to start services based on mode
+# Function to start services in Google API mode
 start_services() {
-    print_info "Starting services in $MODE mode..."
+    print_info "Starting services in Google API production mode..."
 
-    if [ "$MODE" = "mock" ]; then
-        # Start with mock data
-        export DATA_MODE=mock
-        export MOCK_MODE=true
-        docker-compose --profile dev up -d
-    elif [ "$MODE" = "google" ]; then
-        # Start with Google API mode
-        export DATA_MODE=google
-        export MOCK_MODE=false
-        docker-compose --profile dev up -d
-    else
-        print_error "Invalid mode: $MODE. Use 'mock' or 'google'"
-        exit 1
-    fi
+    # Set Google API mode
+    export DATA_MODE=google
+
+    docker-compose --profile dev up -d
 }
 
 # Function to wait for services to be ready
@@ -118,23 +121,21 @@ test_api() {
 
 # Function to show usage information
 show_usage() {
-    echo "🚀 Google Reviews Fetcher - Run Script"
+    echo "🚀 Google Reviews Fetcher - Production Run Script"
     echo ""
     echo "Usage:"
-    echo "  ./run.sh [access_token] [mode]"
+    echo "  ./run.sh [access_token]"
     echo ""
     echo "Arguments:"
-    echo "  access_token    OAuth access token (default: 'test_token_default')"
-    echo "  mode           'mock' or 'google' (default: 'mock')"
+    echo "  access_token    OAuth access token (required, must start with 'ya29.')"
     echo ""
     echo "Examples:"
-    echo "  ./run.sh                                    # Run with defaults (mock mode)"
-    echo "  ./run.sh 'ya29.your_token_here'           # Run with custom token (mock mode)"
-    echo "  ./run.sh 'ya29.your_token_here' google    # Run with Google API mode"
+    echo "  ./run.sh 'ya29.your_oauth_token_here'    # Run with Google API"
     echo ""
-    echo "Modes:"
-    echo "  mock   - Uses mock data (130 accounts, 500 locations, 710 reviews)"
-    echo "  google - Uses real Google Business Profile API (requires valid OAuth token)"
+    echo "Requirements:"
+    echo "  • Valid Google OAuth token with Business Profile API access"
+    echo "  • Google Cloud Console project with Business Profile API enabled"
+    echo "  • Business owner consent for GBP data access"
     echo ""
     echo "API Endpoints:"
     echo "  Health:    http://localhost:8084/health"
@@ -150,19 +151,13 @@ main() {
         exit 0
     fi
 
-    echo "🚀 Google Reviews Fetcher Microservice"
-    echo "======================================"
-    echo "Access Token: $ACCESS_TOKEN"
-    echo "Mode: $MODE"
+    echo "🚀 Google Reviews Fetcher - Production Microservice"
+    echo "=================================================="
+    echo "Access Token: ${ACCESS_TOKEN:0:20}..."
     echo ""
 
-    # Validate mode
-    if [ "$MODE" != "mock" ] && [ "$MODE" != "google" ]; then
-        print_error "Invalid mode: $MODE"
-        echo ""
-        show_usage
-        exit 1
-    fi
+    # Validate access token
+    validate_token
 
     # Check Docker
     check_docker
@@ -180,7 +175,7 @@ main() {
     test_api
 
     echo ""
-    print_status "Microservice is running successfully!"
+    print_status "Production microservice is running successfully!"
     echo ""
     print_info "Useful commands:"
     echo "  • View logs: docker-compose logs -f review-fetcher-dev"

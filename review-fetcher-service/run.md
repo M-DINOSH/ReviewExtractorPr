@@ -1,6 +1,6 @@
-# 🚀 Running the Google Reviews Fetcher Microservice
+# 🚀 Running the Google Reviews Fetcher Production Microservice
 
-This guide provides step-by-step instructions to run the review-fetcher-service microservice, which fetches Google Business Profile reviews and serves them as JSON responses for frontend integration.
+This guide provides step-by-step instructions to run the review-fetcher-service microservice in **production mode** with real Google Business Profile API integration.
 
 ## 📋 Prerequisites
 
@@ -8,9 +8,9 @@ This guide provides step-by-step instructions to run the review-fetcher-service 
 - **Git** (for cloning if needed)
 - **curl** and **jq** (for testing, optional)
 
-## ⚡ Quick Start (Recommended)
+## ⚡ Quick Start (Production Mode)
 
-The easiest way to run the service is using the provided `run.sh` script:
+The easiest way to run the service in production mode is using the provided `run.sh` script:
 
 ```bash
 # Navigate to the service directory
@@ -19,22 +19,22 @@ cd review-fetcher-service
 # Make the script executable (first time only)
 chmod +x run.sh
 
-# Run with mock data (development mode)
-./run.sh
-
-# Or run with a custom access token
-./run.sh "your_access_token_here"
-
-# Or run with Google API mode (requires real OAuth token)
-./run.sh "ya29.your_oauth_token" google
+# Run with Google API (production mode)
+./run.sh "ya29.your_oauth_token_here"
 ```
 
+**Requirements:**
+- Valid Google OAuth token starting with `ya29.`
+- Google Cloud Console project with Business Profile API enabled
+- Business owner consent for GBP data access
+
 The script will:
+- ✅ Validate your OAuth token format
 - ✅ Check if Docker is running
 - ✅ Stop any existing services
 - ✅ Start PostgreSQL, Redis, and the API service
 - ✅ Wait for services to be ready
-- ✅ Test the API endpoints
+- ✅ Test the Google API endpoints
 - ✅ Display formatted results
 
 ## 🔧 Manual Setup (Alternative)

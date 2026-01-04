@@ -28,10 +28,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reviews
       - REDIS_URL=redis://redis:6379
-      - MOCK_MODE=true
-      - DATA_MODE=mock
-    volumes:
-      - ./mock_data:/mock_data:ro
     depends_on:
       - db
       - redis

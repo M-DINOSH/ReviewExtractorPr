@@ -92,13 +92,8 @@ class SyncService:
             for account in accounts:
                 account_id = account["name"].split("/")[-1]
                 
-                # Generate unique account ID for mock mode to avoid duplicates
-                from app.config import settings
-                if settings.mock_mode:
-                    # Create unique ID combining account ID and sync job ID
-                    unique_account_id = f"{account_id}_{sync_job_id}"
-                else:
-                    unique_account_id = account_id
+                # Use Google account ID directly (always unique from Google API)
+                unique_account_id = account_id
                     
                 account_obj = Account(
                     id=unique_account_id,
@@ -145,13 +140,8 @@ class SyncService:
                 for location in locations:
                     location_id = location["name"].split("/")[-1]
                     
-                    # For mock mode, the location_id is already unique (account_id + location_id)
-                    # For real mode, add sync_job_id suffix
-                    from app.config import settings
-                    if settings.mock_mode:
-                        unique_location_id = location_id
-                    else:
-                        unique_location_id = f"{location_id}_{sync_job_id}"
+                    # Use Google location ID directly (always unique from Google API)
+                    unique_location_id = location_id
                         
                     location_obj = Location(
                         id=unique_location_id,
@@ -207,13 +197,8 @@ class SyncService:
                     from datetime import datetime
                     create_time = datetime.fromisoformat(review.get("createTime", "2023-01-01T12:00:00Z").replace('Z', '+00:00'))
                     
-                    # Generate unique review ID for mock mode to avoid duplicates
-                    from app.config import settings
-                    if settings.mock_mode:
-                        # Create unique ID combining review ID, location ID, and sync job ID
-                        review_id = f"{review['reviewId']}_{location_id}_{sync_job_id}"
-                    else:
-                        review_id = review["reviewId"]
+                    # Use Google review ID directly (always unique from Google API)
+                    review_id = review["reviewId"]
                     
                     review_obj = Review(
                         id=review_id,
