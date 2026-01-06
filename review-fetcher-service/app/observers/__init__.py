@@ -74,27 +74,37 @@ class LoggingObserver(BaseObserver):
     async def _handle_event(self, event: str, data: Dict[str, Any]) -> None:
         """Handle logging events"""
         if event == "request_started":
-            logger.info("Request started",
-                       request_id=data.get("request_id"),
-                       client_id=data.get("client_id"))
+            logger.info(
+                "Request started request_id=%s client_id=%s",
+                data.get("request_id"),
+                data.get("client_id"),
+            )
         elif event == "request_completed":
-            logger.info("Request completed",
-                       request_id=data.get("request_id"),
-                       processing_time=data.get("processing_time"))
+            logger.info(
+                "Request completed request_id=%s processing_time=%s",
+                data.get("request_id"),
+                data.get("processing_time"),
+            )
         elif event == "request_error":
-            logger.error("Request failed",
-                        request_id=data.get("request_id"),
-                        error=data.get("error"))
+            logger.error(
+                "Request failed request_id=%s error=%s",
+                data.get("request_id"),
+                data.get("error"),
+            )
         elif event == "sync_started":
-            logger.info("Sync operation started",
-                       account_id=data.get("account_id"),
-                       strategy=data.get("strategy"))
+            logger.info(
+                "Sync operation started account_id=%s strategy=%s",
+                data.get("account_id"),
+                data.get("strategy"),
+            )
         elif event == "sync_completed":
-            logger.info("Sync operation completed",
-                       account_id=data.get("account_id"),
-                       locations_count=data.get("locations_count"))
+            logger.info(
+                "Sync operation completed account_id=%s locations_count=%s",
+                data.get("account_id"),
+                data.get("locations_count"),
+            )
         elif event == "shutdown":
-            logger.info("Service shutting down", service=data.get("service"))
+            logger.info("Service shutting down service=%s", data.get("service"))
 
 
 class AlertingObserver(BaseObserver):
@@ -132,9 +142,11 @@ class AlertingObserver(BaseObserver):
 
     async def _send_alert(self) -> None:
         """Send alert notification"""
-        logger.warning("CRITICAL: High error rate detected",
-                      error_count=len(self.recent_errors),
-                      threshold=self.error_threshold)
+        logger.warning(
+            "CRITICAL: High error rate detected error_count=%s threshold=%s",
+            len(self.recent_errors),
+            self.error_threshold,
+        )
 
         # In a real implementation, this would send emails, Slack notifications, etc.
         # For now, just log the alert

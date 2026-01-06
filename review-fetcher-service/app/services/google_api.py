@@ -49,7 +49,7 @@ class GoogleAPIClient:
         except httpx.HTTPStatusError:
             raise
         except Exception as e:
-            logger.error("Token validation failed", error=str(e))
+            logger.error("Token validation failed: %s", str(e))
             raise GoogleAPIError(f"Token validation failed: {str(e)}")
 
     async def get_accounts(self, access_token: str):
@@ -58,15 +58,17 @@ class GoogleAPIClient:
             url = "https://mybusinessbusinessinformation.googleapis.com/v1/accounts"
             response_data = await self._get(url, access_token)
 
-            logger.info("Successfully fetched accounts from Google API",
-                       accounts_count=len(response_data.get("accounts", [])))
+            accounts_count = len(response_data.get("accounts", []))
+            logger.info("Successfully fetched accounts from Google API (count=%d)", accounts_count)
 
             return response_data
 
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to fetch accounts from Google API",
-                        status_code=e.response.status_code,
-                        response_body=e.response.text)
+            logger.error(
+                "Failed to fetch accounts from Google API (status=%s, body=%s)",
+                e.response.status_code,
+                e.response.text,
+            )
             if e.response.status_code == 401:
                 raise GoogleAPIError("Unauthorized: Invalid access token")
             elif e.response.status_code == 403:
@@ -74,7 +76,7 @@ class GoogleAPIClient:
             else:
                 raise GoogleAPIError(f"Google API error: {e.response.status_code}")
         except Exception as e:
-            logger.error("Unexpected error fetching accounts", error=str(e))
+            logger.error("Unexpected error fetching accounts: %s", str(e))
             raise GoogleAPIError(f"Failed to fetch accounts: {str(e)}")
 
     async def get_locations(self, account_id: str, access_token: str):
@@ -87,17 +89,22 @@ class GoogleAPIClient:
             url = f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_id}/locations"
             response_data = await self._get(url, access_token)
 
-            logger.info("Successfully fetched locations from Google API",
-                       account_id=account_id,
-                       locations_count=len(response_data.get("locations", [])))
+            locations_count = len(response_data.get("locations", []))
+            logger.info(
+                "Successfully fetched locations from Google API (account=%s, count=%d)",
+                account_id,
+                locations_count,
+            )
 
             return response_data
 
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to fetch locations from Google API",
-                        account_id=account_id,
-                        status_code=e.response.status_code,
-                        response_body=e.response.text)
+            logger.error(
+                "Failed to fetch locations from Google API (account=%s, status=%s, body=%s)",
+                account_id,
+                e.response.status_code,
+                e.response.text,
+            )
             if e.response.status_code == 401:
                 raise GoogleAPIError("Unauthorized: Invalid access token")
             elif e.response.status_code == 403:
@@ -105,9 +112,7 @@ class GoogleAPIClient:
             else:
                 raise GoogleAPIError(f"Google API error: {e.response.status_code}")
         except Exception as e:
-            logger.error("Unexpected error fetching locations",
-                        account_id=account_id,
-                        error=str(e))
+            logger.error("Unexpected error fetching locations for %s: %s", account_id, str(e))
             raise GoogleAPIError(f"Failed to fetch locations: {str(e)}")
 
     async def get_reviews(self, account_id: str, location_id: str, access_token: str):
@@ -122,19 +127,24 @@ class GoogleAPIClient:
             url = f"https://mybusiness.googleapis.com/v4/{account_id}/{location_id}/reviews"
             response_data = await self._get(url, access_token)
 
-            logger.info("Successfully fetched reviews from Google API",
-                       account_id=account_id,
-                       location_id=location_id,
-                       reviews_count=len(response_data.get("reviews", [])))
+            reviews_count = len(response_data.get("reviews", []))
+            logger.info(
+                "Successfully fetched reviews from Google API (account=%s, location=%s, count=%d)",
+                account_id,
+                location_id,
+                reviews_count,
+            )
 
             return response_data
 
         except httpx.HTTPStatusError as e:
-            logger.error("Failed to fetch reviews from Google API",
-                        account_id=account_id,
-                        location_id=location_id,
-                        status_code=e.response.status_code,
-                        response_body=e.response.text)
+            logger.error(
+                "Failed to fetch reviews from Google API (account=%s, location=%s, status=%s, body=%s)",
+                account_id,
+                location_id,
+                e.response.status_code,
+                e.response.text,
+            )
             if e.response.status_code == 401:
                 raise GoogleAPIError("Unauthorized: Invalid access token")
             elif e.response.status_code == 403:
@@ -142,10 +152,12 @@ class GoogleAPIClient:
             else:
                 raise GoogleAPIError(f"Google API error: {e.response.status_code}")
         except Exception as e:
-            logger.error("Unexpected error fetching reviews",
-                        account_id=account_id,
-                        location_id=location_id,
-                        error=str(e))
+            logger.error(
+                "Unexpected error fetching reviews for account=%s location=%s: %s",
+                account_id,
+                location_id,
+                str(e),
+            )
             raise GoogleAPIError(f"Failed to fetch reviews: {str(e)}")
 
     async def close(self):

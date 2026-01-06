@@ -1,8 +1,15 @@
+version: "3.9"
+
 services:
-  # Development service with port mapping for testing
-  review-fetcher-dev:
+  review-fetcher:
     build: .
+    image: review-fetcher:local
+    environment:
+      LOG_LEVEL: INFO
+      MOCK_GOOGLE_API: "true"  # set to "false" to use real Kafka + Google API
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
     ports:
       - "8084:8000"
     profiles:
       - dev
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

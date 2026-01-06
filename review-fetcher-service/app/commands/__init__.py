@@ -32,13 +32,13 @@ class SyncReviewsCommand(BaseCommand):
 
     async def execute(self) -> Dict[str, Any]:
         """Execute the sync reviews command"""
-        logger.info("Executing sync reviews command", command=self._name)
+        logger.info("Executing sync reviews command name=%s", self._name)
         try:
             result = await self.sync_service.sync_reviews(self.access_token)
-            logger.info("Sync reviews command completed successfully", command=self._name)
+            logger.info("Sync reviews command completed successfully name=%s", self._name)
             return result
         except Exception as e:
-            logger.error("Sync reviews command failed", command=self._name, error=str(e))
+            logger.error("Sync reviews command failed name=%s error=%s", self._name, str(e))
             raise
 
 
@@ -51,7 +51,7 @@ class HealthCheckCommand(BaseCommand):
 
     async def execute(self) -> Dict[str, Any]:
         """Execute the health check command"""
-        logger.debug("Executing health check command", command=self._name)
+        logger.debug("Executing health check command name=%s", self._name)
 
         health_results = {}
         overall_status = "healthy"
@@ -86,16 +86,18 @@ class CommandInvoker:
 
     async def execute_command(self, command: ICommand) -> Any:
         """Execute a command and track it"""
-        logger.debug("Invoking command", command_name=command.get_name())
+        logger.debug("Invoking command name=%s", command.get_name())
 
         try:
             result = await command.execute()
             self._command_history.append(command)
             return result
         except Exception as e:
-            logger.error("Command execution failed",
-                        command_name=command.get_name(),
-                        error=str(e))
+            logger.error(
+                "Command execution failed name=%s error=%s",
+                command.get_name(),
+                str(e),
+            )
             raise
 
     def get_command_history(self) -> List[str]:
