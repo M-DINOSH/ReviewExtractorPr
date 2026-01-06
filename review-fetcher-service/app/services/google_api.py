@@ -1,7 +1,6 @@
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.config import settings
-from app.utils.cache import cache_get, cache_set
 import structlog
 from typing import Dict, List, Any
 

@@ -2,17 +2,11 @@
 FastAPI application with SOLID principles and design patterns
 """
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import engine, get_db, async_session
-from app.models import SyncJob, Base
-from app.schemas import SyncRequest, SyncResponse, JobStatusResponse, ReviewsListResponse
-from app.workers.tasks import sync_reviews_task
+from fastapi import FastAPI, HTTPException
 from app.services.simple_sync_service import SimpleSyncService
 from app.config import settings
 import structlog
 import asyncio
-from collections import deque
 import logging
 
 # Import new OOP components
@@ -21,7 +15,6 @@ from app.core.interfaces import IService, ServiceStatus, ServiceHealth
 from app.commands import SyncReviewsCommand, HealthCheckCommand, CommandInvoker
 from app.observers import metrics_observer, logging_observer, alerting_observer, health_observer
 from app.strategies import SyncStrategy, SyncStrategyFactory
-from app.repositories import SyncJobRepository
 from app.decorators import log_execution, rate_limit, monitor_performance, validate_input
 
 # Configure logging
@@ -85,51 +78,11 @@ class ReviewFetcherService(BaseService):
 # Create main service instance
 review_service = ReviewFetcherService()
 
-async def process_request_queue():
-    """Background worker to process queued requests at a controlled rate"""
-    while True:
-        try:
-            async with queue_lock:
-                if request_queue:
-                    # Get next request from queue
-                    request_data = request_queue.popleft()
-
-            if request_data:
-                access_token = request_data['access_token']
-                future = request_data['future']
-
-                try:
-                    # Process the request
-                    service = SimpleSyncService()
-                    result = await service.sync_reviews(access_token)
-
-                    # Set the result in the future
-                    if not future.done():
-                        future.set_result(result)
-
-                    logger.info("Processed queued request", queue_size=len(request_queue))
-
-                except Exception as e:
-                    logger.error("Failed to process queued request", error=str(e))
-                    if not future.done():
-                        future.set_exception(e)
-
-            # Control processing rate to prevent overwhelming APIs
-            await asyncio.sleep(1.0 / PROCESSING_RATE)
-
-        except Exception as e:
-            logger.error("Queue processing error", error=str(e))
-            await asyncio.sleep(1)  # Brief pause on error
-
 app = FastAPI(title="Google Reviews Fetcher Service", version="2.0.0")
 
 
 @app.on_event("startup")
 async def startup_event():
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     # Register observers
     event_subject.attach(metrics_observer)
     event_subject.attach(logging_observer)
@@ -138,10 +91,6 @@ async def startup_event():
 
     # Register service in factory
     service_factory.register_service("review_fetcher", ReviewFetcherService)
-
-    # Start the request queue processor
-    asyncio.create_task(process_request_queue())
-    logger.info("Request queue processor started", processing_rate=PROCESSING_RATE)
 
     # Notify startup
     await event_subject.notify("service_started", {
@@ -160,71 +109,6 @@ async def shutdown_event():
         "service": "review-fetcher",
         "version": "2.0.0"
     })
-
-
-@app.post("/sync", response_model=SyncResponse)
-async def sync_reviews(
-    request: SyncRequest,
-    background_tasks: BackgroundTasks,
-):
-    # Create sync job with access token stored for background processing
-    # Use a new session for this operation to avoid dependency injection issues
-    db = async_session()
-    try:
-        sync_job = SyncJob(
-            client_id=request.client_id or "unknown",
-            request_id=request.request_id,
-            correlation_id=request.correlation_id,
-            access_token=request.access_token,  # Store token for background processing
-            status="pending",
-            current_step="token_validation",
-            step_status={
-                "token_validation": {"status": "pending", "timestamp": None, "message": None},
-                "accounts_fetch": {"status": "pending", "timestamp": None, "message": None},
-                "locations_fetch": {"status": "pending", "timestamp": None, "message": None},
-                "reviews_fetch": {"status": "pending", "timestamp": None, "message": None}
-            }
-        )
-        db.add(sync_job)
-        await db.commit()
-        await db.refresh(sync_job)
-    finally:
-        await db.close()
-
-    # Enqueue background task with continuous flow
-    background_tasks.add_task(
-        sync_reviews_task,
-        request.access_token,
-        request.client_id or "unknown",
-        sync_job.id
-    )
-
-    return SyncResponse(
-        job_id=sync_job.id,
-        status="pending",
-        message="Continuous sync flow initiated - will automatically progress through all steps"
-    )
-
-
-@app.get("/job/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: int):
-    """Get the status of a sync job including step-by-step progress"""
-    db = async_session()
-    try:
-        job = await db.get(SyncJob, job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        return JobStatusResponse(
-            job_id=job.id,
-            status=job.status,
-            current_step=job.current_step,
-            step_status=job.step_status or {},
-            created_at=job.created_at,
-            updated_at=job.updated_at
-        )
-    finally:
-        await db.close()
 
 
 @app.get("/health")
@@ -249,103 +133,6 @@ async def health_check():
     }
 
 
-@app.get("/reviews", response_model=ReviewsListResponse)
-async def get_all_reviews(limit: int = 100, offset: int = 0):
-    """Get all reviews from the database with pagination"""
-    from app.models import Review
-    from sqlalchemy import text
-
-    db = async_session()
-    try:
-        # Get total count
-        count_query = await db.execute(text("SELECT COUNT(*) FROM reviews"))
-        total_reviews = count_query.scalar()
-
-        # Get reviews with pagination
-        reviews_query = await db.execute(
-            text("""
-                SELECT id, location_id, account_id, rating, comment, reviewer_name, create_time, client_id, sync_job_id, created_at
-                FROM reviews
-                ORDER BY created_at DESC
-                LIMIT :limit OFFSET :offset
-            """),
-            {"limit": limit, "offset": offset}
-        )
-        review_rows = reviews_query.fetchall()
-
-        reviews = []
-        for row in review_rows:
-            reviews.append({
-                "id": row[0],
-                "location_id": row[1],
-                "account_id": row[2],
-                "rating": row[3],
-                "comment": row[4],
-                "reviewer_name": row[5],
-                "create_time": row[6],
-                "client_id": row[7],
-                "sync_job_id": row[8],
-                "created_at": row[9]
-            })
-
-        return ReviewsListResponse(
-            total_reviews=total_reviews,
-            reviews=reviews
-        )
-    finally:
-        await db.close()
-
-
-@app.get("/reviews/{job_id}", response_model=ReviewsListResponse)
-async def get_reviews_by_job(job_id: int, limit: int = 100, offset: int = 0):
-    """Get reviews for a specific sync job"""
-    from app.models import Review
-    from sqlalchemy import text
-
-    db = async_session()
-    try:
-        # Get total count for this job
-        count_query = await db.execute(
-            text("SELECT COUNT(*) FROM reviews WHERE sync_job_id = :job_id"),
-            {"job_id": job_id}
-        )
-        total_reviews = count_query.scalar()
-
-        # Get reviews for this job with pagination
-        reviews_query = await db.execute(
-            text("""
-                SELECT id, location_id, account_id, rating, comment, reviewer_name, create_time, client_id, sync_job_id, created_at
-                FROM reviews
-                WHERE sync_job_id = :job_id
-                ORDER BY created_at DESC
-                LIMIT :limit OFFSET :offset
-            """),
-            {"job_id": job_id, "limit": limit, "offset": offset}
-        )
-        review_rows = reviews_query.fetchall()
-
-        reviews = []
-        for row in review_rows:
-            reviews.append({
-                "id": row[0],
-                "location_id": row[1],
-                "account_id": row[2],
-                "rating": row[3],
-                "comment": row[4],
-                "reviewer_name": row[5],
-                "create_time": row[6],
-                "client_id": row[7],
-                "sync_job_id": row[8],
-                "created_at": row[9]
-            })
-
-        return ReviewsListResponse(
-            total_reviews=total_reviews,
-            reviews=reviews
-        )
-    finally:
-        await db.close()
-
 @app.get("/sync/reviews")
 @log_execution()
 @rate_limit(requests_per_minute=60)
@@ -353,18 +140,18 @@ async def get_reviews_by_job(job_id: int, limit: int = 100, offset: int = 0):
 @validate_input({"access_token": str})
 async def sync_reviews(access_token: str, request_id: str = "auto"):
     """
-    Simplified sync endpoint that returns combined JSON data directly.
+    Production Google Reviews API endpoint that returns combined JSON data directly.
 
     This endpoint provides a streamlined flow that:
-    1. Accepts only an access_token
-    2. Automatically fetches accounts, locations, and reviews
-    3. Returns combined JSON without database persistence or Kafka
+    1. Accepts only an access_token (Google OAuth token)
+    2. Automatically fetches accounts, locations, and reviews from Google API
+    3. Returns combined JSON without database persistence
 
     Uses a request queue for automatic scaling with incoming user requests.
     Implements SOLID principles with command pattern and observer notifications.
 
     Query Parameters:
-    - access_token: OAuth access token (required)
+    - access_token: Google OAuth access token (required, must start with 'ya29.')
     - request_id: Optional request identifier for tracking
 
     Returns:
