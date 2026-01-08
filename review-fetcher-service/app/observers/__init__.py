@@ -194,9 +194,9 @@ class HealthObserver(BaseObserver):
         }
 
 
+
 # Global observer instances
 metrics_observer = MetricsObserver()
 logging_observer = LoggingObserver()
 alerting_observer = AlertingObserver()
-health_observer = HealthObserver()</content>
-<parameter name="filePath">/Users/dinoshm/Desktop/applic/ReviewExtractorPr/review-fetcher-service/app/observers/__init__.py
+health_observer = HealthObserver()

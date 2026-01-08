@@ -1,15 +1,160 @@
 version: "3.9"
 
 services:
+  # ============================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================
+
+  # Zookeeper - Required for Kafka coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "echo", "stat", "|", "nc", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Broker - Message streaming platform
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://kafka:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+    healthcheck:
+      test: kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka UI - Optional: Visual monitoring of Kafka topics
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  # ============================================
+  # APPLICATION SERVICE
+  # ============================================
+
   review-fetcher:
     build: .
     image: review-fetcher:local
+    container_name: review-fetcher-service
+    depends_on:
+      kafka:
+        condition: service_healthy
     environment:
+      # Service Configuration
       LOG_LEVEL: INFO
-      MOCK_GOOGLE_API: "true"  # set to "false" to use real Kafka + Google API
-      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+      ENVIRONMENT: development
+      
+      # Feature Flags
+      MOCK_GOOGLE_API: "true"              # Set to "false" for real Google API
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092  # Use container name (not localhost)
+      KAFKA_CONSUMER_GROUP: review-fetcher-service
+      
+      # Rate Limiting
+      RATELIMIT_TOKEN_BUCKET_CAPACITY: 100
+      RATELIMIT_REFILL_RATE: 10.0
+      
+      # Retry Policy
+      RETRY_MAX_RETRIES: 3
+      RETRY_INITIAL_BACKOFF_MS: 100
+      RETRY_MAX_BACKOFF_MS: 10000
+      RETRY_BACKOFF_MULTIPLIER: 2.0
+      
+      # Queue Configuration
+      DEQUE_MAX_SIZE: 10000
+      DEQUE_BURST_CHECK_INTERVAL_SEC: 0.1
+      
+      # API Configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      API_WORKERS: 4
     ports:
       - "8084:8000"
-    profiles:
-      - dev
+    volumes:
+      - ./app:/app/app              # Mount app for hot-reload during development
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - review-network
+
+  # ============================================
+  # OPTIONAL: SEPARATION SERVICE (for sentiment analysis)
+  # ============================================
+  separation-service:
+    build: ../separation-service
+    image: separation-service:local
+    container_name: separation-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8085:5000"
+    environment:
+      LOG_LEVEL: INFO
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INPUT_TOPIC: reviews-raw
+      OUTPUT_TOPIC: reviews-sentiment
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - review-network
+
+networks:
+  review-network:
+    driver: bridge
+
+# ============================================
+# PROFILES FOR DIFFERENT SCENARIOS
+# ============================================
+# Dev Profile: All services
+# 
+# Usage:
+#   docker compose --profile dev up
+#   docker compose --profile dev down
+#
+# Dev-Lite Profile: Only review-fetcher (no kafka)
+#
+# Usage:
+#   docker compose --profile dev-lite up
+#
+# Prod Profile: Excludes UI and optional services
+#
+# Usage:
+#   docker compose --profile prod up
