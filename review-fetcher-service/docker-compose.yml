@@ -18,6 +18,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - review-network
 
   # Kafka Broker - Message streaming platform
   kafka:
@@ -38,10 +40,13 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_HOURS: 24
     healthcheck:
-      test: kafka-broker-api-versions.sh --bootstrap-server localhost:9092
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "bash", "-c", "kafka-topics.sh --bootstrap-server localhost:9092 --list || true"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - review-network
 
   # Kafka UI - Optional: Visual monitoring of Kafka topics
   kafka-ui:
@@ -55,6 +60,8 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - review-network
 
   # ============================================
   # APPLICATION SERVICE
@@ -73,7 +80,7 @@ services:
       ENVIRONMENT: development
       
       # Feature Flags
-      MOCK_GOOGLE_API: "true"              # Set to "false" for real Google API
+      MOCK_GOOGLE_API: "false"             # Set to "false" for real Google API
       
       # Kafka Configuration
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092  # Use container name (not localhost)

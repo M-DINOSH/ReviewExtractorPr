@@ -10,11 +10,15 @@ import os
 
 class KafkaConfig(BaseSettings):
     """Kafka connection settings"""
-    bootstrap_servers: list[str] = ["localhost:9092"]
+    bootstrap_servers: str = "localhost:9092"  # comma-separated string
     consumer_group: str = "review-fetcher-service"
     auto_offset_reset: str = "earliest"
     session_timeout_ms: int = 30000
     max_poll_records: int = 100
+    
+    def get_bootstrap_servers_list(self) -> list[str]:
+        """Convert comma-separated string to list"""
+        return [s.strip() for s in self.bootstrap_servers.split(",")]
     
     class Config:
         env_prefix = "KAFKA_"

@@ -123,9 +123,8 @@ class AIokafkaProducer(KafkaProducerBase):
             
             self.producer = AIOKafkaProducer(
                 bootstrap_servers=self.bootstrap_servers,
-                compression_type=self.compression_type,
+                compression_type=None,             # Disable snappy for now
                 request_timeout_ms=self.request_timeout_ms,
-                # Idempotency settings (retries parameter removed in newer aiokafka versions)
                 acks="all",
                 enable_idempotence=True
             )

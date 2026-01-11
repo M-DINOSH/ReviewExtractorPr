@@ -87,7 +87,7 @@ async def initialize_components() -> AppState:
     # 2. Initialize Kafka producer
     producer = KafkaProducerFactory.create(
         mock=state.settings.mock_google_api,
-        bootstrap_servers=state.settings.kafka.bootstrap_servers
+        bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     await producer.connect()
     state.kafka_producer = producer
@@ -128,7 +128,7 @@ async def initialize_components() -> AppState:
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
         mock_mode=state.settings.mock_google_api,
-        bootstrap_servers=state.settings.kafka.bootstrap_servers
+        bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     
     state.location_worker = LocationWorker(
@@ -136,7 +136,7 @@ async def initialize_components() -> AppState:
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
         mock_mode=state.settings.mock_google_api,
-        bootstrap_servers=state.settings.kafka.bootstrap_servers
+        bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     
     state.review_worker = ReviewWorker(
@@ -144,7 +144,7 @@ async def initialize_components() -> AppState:
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
         mock_mode=state.settings.mock_google_api,
-        bootstrap_servers=state.settings.kafka.bootstrap_servers
+        bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     logger.info("kafka_workers_initialized")
     
