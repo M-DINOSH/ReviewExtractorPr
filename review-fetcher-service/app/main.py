@@ -27,13 +27,13 @@ from app.kafka_consumers.review_worker import ReviewWorker
 logger = logging.getLogger(__name__)
 
 
-class AppState:
+class AppState: 
     """
     Container for application state
     Implements Service Locator pattern
     """
     
-    def __init__(self):
+    def __init__(self): 
         self.settings = get_settings()
         self.deque_buffer: Optional[BoundedDequeBuffer] = None
         self.kafka_producer: Optional[KafkaProducerFactory] = None

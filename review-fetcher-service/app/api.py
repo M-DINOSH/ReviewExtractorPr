@@ -233,3 +233,29 @@ async def get_metrics(
         "jobs_tracked": len(api_service.job_tracking),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+@router.get(
+    "/reviews",
+    summary="Get published reviews",
+    description="Get all reviews published to reviews-raw topic (mock mode only)"
+)
+async def get_reviews(
+    api_service: Annotated[APIService, Depends(get_api_service)],
+    topic: str = "reviews-raw"
+) -> dict:
+    """
+    GET /api/v1/reviews
+    
+    Returns all reviews that have been published to the reviews-raw Kafka topic.
+    Only works in mock mode.
+    """
+    messages = api_service.event_publisher.producer.get_messages(topic=topic)
+    reviews = [msg["message"] for msg in messages if msg.get("topic") == topic]
+    
+    return {
+        "topic": topic,
+        "total_reviews": len(reviews),
+        "reviews": reviews,
+        "timestamp": datetime.utcnow().isoformat()
+    }
