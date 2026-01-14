@@ -9,8 +9,9 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional, Callable
 import asyncio
 from datetime import datetime
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class KafkaProducerBase(ABC):
@@ -169,7 +170,8 @@ class AIokafkaProducer(KafkaProducerBase):
         
         try:
             value = json.dumps(message).encode("utf-8")
-            key_bytes = key.encode("utf-8") if key else None
+            # Keys can come from mock JSON (often ints). Kafka keys must be bytes.
+            key_bytes = str(key).encode("utf-8") if key is not None else None
             
             # Send and wait for confirmation
             future = await self.producer.send_and_wait(
@@ -181,7 +183,7 @@ class AIokafkaProducer(KafkaProducerBase):
             logger.info(
                 "kafka_message_sent",
                 topic=topic,
-                key=key,
+                key=str(key) if key is not None else None,
                 partition=future.partition,
                 offset=future.offset
             )
@@ -260,7 +262,8 @@ class KafkaEventPublisher:
         self,
         job_id: str,
         account_id: str,
-        account_name: str
+        account_name: str,
+        access_token: str = "mock_token"
     ) -> bool:
         """Publish event to fetch locations"""
         message = {
@@ -268,6 +271,7 @@ class KafkaEventPublisher:
             "job_id": job_id,
             "account_id": account_id,
             "account_name": account_name,
+            "access_token": access_token,
             "timestamp": datetime.utcnow().isoformat()
         }
         
@@ -282,7 +286,8 @@ class KafkaEventPublisher:
         job_id: str,
         account_id: str,
         location_id: str,
-        location_name: str
+        location_name: str,
+        access_token: str = "mock_token"
     ) -> bool:
         """Publish event to fetch reviews"""
         message = {
@@ -291,6 +296,7 @@ class KafkaEventPublisher:
             "account_id": account_id,
             "location_id": location_id,
             "location_name": location_name,
+            "access_token": access_token,
             "timestamp": datetime.utcnow().isoformat()
         }
         

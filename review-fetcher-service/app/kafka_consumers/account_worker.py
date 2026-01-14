@@ -1,28 +1,22 @@
 """
-Account Worker - consumes fetch-accounts events and fetches Google accounts
-Implements Single Responsibility Principle (SRP)
+Account Worker - Consumes fetch-accounts events and fetches accounts from mock data
 """
 
 import asyncio
-import logging
-import random
 from typing import Callable, Optional
-from datetime import datetime
+import structlog
 
 from app.kafka_consumers.base import AIokafkaConsumer, MockKafkaConsumer
 from app.rate_limiter import TokenBucketLimiter
 from app.retry import RetryScheduler, ExponentialBackoffPolicy
 from app.kafka_producer import KafkaEventPublisher
+from app.services.mock_data import mock_data_service
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AccountWorker:
-    """
-    Consumes fetch-accounts events
-    Simulates Google API call to list accounts
-    Publishes fetch-locations events
-    """
+    """Consumes fetch-accounts events and publishes fetch-locations events"""
     
     def __init__(
         self,
@@ -37,7 +31,6 @@ class AccountWorker:
         self.event_publisher = event_publisher
         self.mock_mode = mock_mode
         self.bootstrap_servers = bootstrap_servers or ["localhost:9092"]
-        
         self.consumer = None
         self._setup_consumer()
     
@@ -62,7 +55,6 @@ class AccountWorker:
         if not self.consumer:
             logger.error("consumer_not_initialized")
             return
-        
         await self.consumer.start()
         logger.info("account_worker_started")
     
@@ -78,56 +70,37 @@ class AccountWorker:
         await self.consumer.consume()
     
     async def _on_message(self, message: dict) -> None:
-        """
-        Process fetch-accounts event
-        
-        Message format:
-        {
-            "type": "fetch_accounts",
-            "job_id": str,
-            "access_token": str,
-            "timestamp": str
-        }
-        """
+        """Process fetch-accounts event - fetch accounts from mock data"""
         try:
             job_id = message.get("job_id")
-            access_token = message.get("access_token")
             
-            logger.info(
-                "processing_fetch_accounts",
-                job_id=job_id
-            )
+            logger.info("processing_fetch_accounts", job_id=job_id)
             
             # Rate limiting
             if not await self.rate_limiter.acquire(tokens=1):
-                logger.warning(
-                    "rate_limit_exceeded",
-                    job_id=job_id
-                )
-                # Schedule for retry with backoff
+                logger.warning("rate_limit_exceeded", job_id=job_id)
                 await self.retry_scheduler.schedule_retry(
                     message_id=job_id,
-                    payload=message,
+                    payload={**message, "type": "fetch_accounts"},
                     error_code="429",
                     attempt=0
                 )
                 return
             
-            # Simulate Google API call
-            accounts = await self._fetch_accounts_from_google(
-                access_token,
-                job_id
-            )
+            # Fetch accounts from mock data
+            accounts = await mock_data_service.get_accounts()
             
             if not accounts:
-                raise Exception("No accounts found")
+                logger.warning("no_accounts_found", job_id=job_id)
+                return
             
-            # Publish fetch-locations events for each account
+            # Publish fetch-locations event for each account
             for account in accounts:
                 success = await self.event_publisher.publish_fetch_locations_event(
                     job_id=job_id,
                     account_id=account["id"],
-                    account_name=account["name"]
+                    account_name=account["display_name"],
+                    access_token=message.get("access_token")
                 )
                 
                 if not success:
@@ -137,50 +110,13 @@ class AccountWorker:
                         account_id=account["id"]
                     )
             
-            logger.info(
-                "accounts_processed",
-                job_id=job_id,
-                account_count=len(accounts)
-            )
+            logger.info("accounts_processed", job_id=job_id, count=len(accounts))
         
         except Exception as e:
-            logger.error(
-                f"account_worker_error",
-                job_id=message.get("job_id"),
-                error=str(e)
-            )
-            # Send to DLQ
+            logger.error("account_worker_error", job_id=message.get("job_id"), error=str(e))
             await self.event_publisher.publish_dlq_message(
                 original_topic="fetch-accounts",
                 original_message=message,
                 error=str(e),
                 error_code="500"
             )
-    
-    async def _fetch_accounts_from_google(
-        self,
-        access_token: str,
-        job_id: str
-    ) -> list[dict]:
-        """
-        Simulate Google Business Profile API call
-        In production: use httpx to call real API
-        """
-        # Simulate API latency
-        await asyncio.sleep(random.uniform(0.1, 0.3))
-        
-        # Simulate occasional failures (5% chance)
-        if random.random() < 0.05:
-            raise Exception("Simulated Google API error")
-        
-        # Return mock accounts
-        return [
-            {
-                "id": f"account_{job_id}_1",
-                "name": f"Business Account 1 for job {job_id}"
-            },
-            {
-                "id": f"account_{job_id}_2",
-                "name": f"Business Account 2 for job {job_id}"
-            }
-        ]

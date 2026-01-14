@@ -1,8 +1,26 @@
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+except Exception:  # pragma: no cover
+    retry = None
+    stop_after_attempt = None
+    wait_exponential = None
+    retry_if_exception_type = None
+
+
+def _retry_decorator():
+    if retry is None:
+        return lambda fn: fn
+    return retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
+    )
 from app.config import settings
 import structlog
 from typing import Dict, List, Any
+from app.services.mock_data import mock_data_service
 
 logger = structlog.get_logger()
 
@@ -12,22 +30,36 @@ class GoogleAPIError(Exception):
 
 
 class GoogleAPIClient:
-    def __init__(self):
+    def __init__(self, use_mock: bool = None):
         self.client = httpx.AsyncClient(timeout=30.0)
+        # Use mock mode from config if not explicitly set
+        self.use_mock = use_mock if use_mock is not None else settings.mock_google_api
+        
+        logger.info(f"GoogleAPIClient init: use_mock={use_mock}, settings.mock_google_api={settings.mock_google_api}, final use_mock={self.use_mock}")
+        if self.use_mock:
+            logger.info("GoogleAPIClient initialized in MOCK mode - using data from jsom folder")
+        else:
+            logger.warning("GoogleAPIClient initialized in REAL mode - will call actual Google APIs")
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
-    )
+    @_retry_decorator()
     async def _get(self, url: str, access_token: str):
+        if retry is None and not self.use_mock:
+            raise GoogleAPIError(
+                "Missing dependency 'tenacity'. Install it to use real Google API mode."
+            )
+
         headers = {"Authorization": f"Bearer {access_token}"}
         response = await self.client.get(url, headers=headers)
         response.raise_for_status()
         return response.json()
 
     async def validate_token(self, access_token: str):
-        """Validate access token using Google's tokeninfo endpoint"""
+        """Validate access token - in mock mode, accept any token"""
+        # In mock mode, accept any token that's at least 10 chars
+        if self.use_mock:
+            logger.info("Token validation skipped in mock mode", token_length=len(access_token))
+            return {"valid": True}
+        
         try:
             # Validate that token starts with 'ya29' (Google OAuth tokens)
             if not access_token.startswith('ya29'):
@@ -49,11 +81,16 @@ class GoogleAPIClient:
         except httpx.HTTPStatusError:
             raise
         except Exception as e:
-            logger.error("Token validation failed: %s", str(e))
+            logger.error("Token validation failed", error=str(e))
             raise GoogleAPIError(f"Token validation failed: {str(e)}")
 
     async def get_accounts(self, access_token: str):
-        """Get accounts from Google Business Profile API"""
+        """Get accounts from Google Business Profile API or mock data"""
+        # Use mock data if in mock mode
+        if self.use_mock:
+            logger.info("Fetching accounts from mock data")
+            return await mock_data_service.get_accounts(access_token)
+        
         try:
             url = "https://mybusinessbusinessinformation.googleapis.com/v1/accounts"
             response_data = await self._get(url, access_token)
@@ -80,7 +117,12 @@ class GoogleAPIClient:
             raise GoogleAPIError(f"Failed to fetch accounts: {str(e)}")
 
     async def get_locations(self, account_id: str, access_token: str):
-        """Get locations for account from Google Business Profile API"""
+        """Get locations for account from Google Business Profile API or mock data"""
+        # Use mock data if in mock mode
+        if self.use_mock:
+            logger.info("Fetching locations from mock data for account=%s", account_id)
+            return await mock_data_service.get_locations(account_id, access_token)
+        
         try:
             # Extract account name from full account resource name if needed
             if not account_id.startswith("accounts/"):
@@ -116,7 +158,12 @@ class GoogleAPIClient:
             raise GoogleAPIError(f"Failed to fetch locations: {str(e)}")
 
     async def get_reviews(self, account_id: str, location_id: str, access_token: str):
-        """Get reviews for location from Google My Business API"""
+        """Get reviews for location from Google My Business API or mock data"""
+        # Use mock data if in mock mode
+        if self.use_mock:
+            logger.info("Fetching reviews from mock data for account=%s, location=%s", account_id, location_id)
+            return await mock_data_service.get_reviews(account_id, location_id, access_token)
+        
         try:
             # Extract account and location IDs from resource names if needed
             if not account_id.startswith("accounts/"):

@@ -15,6 +15,7 @@ from app.models import (
 from app.deque_buffer import BoundedDequeBuffer
 from app.kafka_producer import KafkaEventPublisher
 from app.config import get_settings
+from app.services.google_api import GoogleAPIClient, GoogleAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -38,28 +39,23 @@ class APIService:
         self.event_publisher = event_publisher
         self.settings = settings or get_settings()
         self.job_tracking: dict = {}  # In-memory job state
+        self.google_api_client = GoogleAPIClient()  # Initialize Google API client
     
     async def validate_access_token(self, token: str) -> bool:
         """
         Validate Google OAuth access token
-        In production: call Google API
+        Uses GoogleAPIClient which handles both mock and real API
         """
         if not token or len(token) < 10:
             return False
         
-        if self.settings.mock_google_api:
-            # Mock validation - accept any token in dev mode
-            logger.debug("mock_token_validation token_length=%s", len(token))
-            return True
-        
-        # Production: validate with Google API
-        # try:
-        #     httpx call to Google API
-        #     return True
-        # except:
-        #     return False
-        
-        return True
+        try:
+            result = await self.google_api_client.validate_token(token)
+            logger.info(f"token_validation_result: {result}")
+            return result.get("valid", False)
+        except Exception as e:
+            logger.error(f"token_validation_error: {str(e)} ({type(e).__name__})")
+            return False
     
     async def create_fetch_job(self, request: ReviewFetchRequest) -> ReviewFetchResponse:
         """

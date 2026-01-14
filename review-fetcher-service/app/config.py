@@ -10,7 +10,7 @@ import os
 
 class KafkaConfig(BaseSettings):
     """Kafka connection settings"""
-    bootstrap_servers: str = "localhost:9092"  # comma-separated string
+    bootstrap_servers: str = "localhost:9094"  # Host address for local connections
     consumer_group: str = "review-fetcher-service"
     auto_offset_reset: str = "earliest"
     session_timeout_ms: int = 30000
@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     
     # Feature flags
     mock_google_api: bool = os.getenv("MOCK_GOOGLE_API", "true").lower() == "true"
+    mock_kafka: bool = os.getenv("MOCK_KAFKA", "false").lower() == "true"
     enable_dlq: bool = True
     enable_idempotency: bool = True
     

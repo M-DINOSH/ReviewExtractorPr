@@ -10,8 +10,9 @@ from typing import Dict
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @dataclass

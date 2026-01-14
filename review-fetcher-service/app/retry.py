@@ -11,8 +11,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable, Any, Optional, Set
 from enum import Enum
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ErrorCode(str, Enum):

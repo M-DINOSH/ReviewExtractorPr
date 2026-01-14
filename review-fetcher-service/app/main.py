@@ -85,8 +85,9 @@ async def initialize_components() -> AppState:
     logger.info("deque_buffer_initialized max_size=%s", state.settings.deque.max_size)
     
     # 2. Initialize Kafka producer
+    # Use mock Kafka only when explicitly enabled; default is real Kafka even in mock data mode
     producer = KafkaProducerFactory.create(
-        mock=state.settings.mock_google_api,
+        mock=state.settings.mock_kafka,
         bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     await producer.connect()
@@ -127,7 +128,7 @@ async def initialize_components() -> AppState:
         rate_limiter=state.account_rate_limiter,
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
-        mock_mode=state.settings.mock_google_api,
+        mock_mode=state.settings.mock_kafka,
         bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     
@@ -135,7 +136,7 @@ async def initialize_components() -> AppState:
         rate_limiter=state.location_rate_limiter,
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
-        mock_mode=state.settings.mock_google_api,
+        mock_mode=state.settings.mock_kafka,
         bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     
@@ -143,7 +144,7 @@ async def initialize_components() -> AppState:
         rate_limiter=state.review_rate_limiter,
         retry_scheduler=state.retry_scheduler,
         event_publisher=state.event_publisher,
-        mock_mode=state.settings.mock_google_api,
+        mock_mode=state.settings.mock_kafka,
         bootstrap_servers=state.settings.kafka.get_bootstrap_servers_list()
     )
     logger.info("kafka_workers_initialized")
@@ -209,14 +210,14 @@ async def start_background_tasks(state: AppState) -> None:
                         await state.event_publisher.publish_fetch_locations_event(
                             job_id=task.payload["job_id"],
                             account_id=task.payload["account_id"],
-                            account_name=task.payload["account_name"]
+                            account_name=task.payload.get("account_name", "")
                         )
                     elif message_type == "fetch_reviews":
                         await state.event_publisher.publish_fetch_reviews_event(
                             job_id=task.payload["job_id"],
                             account_id=task.payload["account_id"],
                             location_id=task.payload["location_id"],
-                            location_name=task.payload["location_name"]
+                            location_name=task.payload.get("location_name", "")
                         )
                     
                     await state.retry_scheduler.mark_retry_end(task.message_id)
