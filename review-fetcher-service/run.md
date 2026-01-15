@@ -84,8 +84,10 @@ Open in browser:
 
 On that page you can:
 
-- Trigger `/api/v1/review-fetch`
-- Watch the nested Kafka stream output via `/api/v1/demo/stream/nested`
+- Click **Generate** to run one-shot aggregation (`POST /api/v1/demo/nested`)
+- Click **Start review fetch + stream** to stream results using the production-safe flow:
+  - `POST /api/v1/stream-session` (token in body)
+  - then `GET /api/v1/stream/nested?session_id=...` (SSE)
 
 ### Option B — CLI demo (prints final nested JSON)
 
@@ -167,9 +169,25 @@ curl -s http://localhost:8084/api/v1/review-fetch \
 Use the Kafka-backed nested stream (same as mock mode):
 
 - Web UI: `http://localhost:8084/demo`
-- Nested SSE: `/api/v1/demo/stream/nested?job_id=...`
+- Nested SSE (production): `/api/v1/stream/nested?job_id=...`
 
-You can also start the nested SSE stream by providing a token (it will create a job after seeking Kafka to the end):
+Production-safe UI streaming (recommended):
+1) create a session:
+
+```bash
+curl -s http://localhost:8084/api/v1/stream-session \
+  -H 'Content-Type: application/json' \
+  -d '{"access_token":"YOUR_TOKEN"}' | python3 -m json.tool
+```
+
+2) stream via SSE (replace SESSION_ID):
+
+```bash
+SESSION_ID=<paste_session_id_here>
+curl -s -N "http://localhost:8084/api/v1/stream/nested?session_id=$SESSION_ID&max_wait_sec=30" | head -n 80
+```
+
+Demo-only shortcut (token is in URL; not recommended for production):
 
 ```bash
 curl -s -N "http://localhost:8084/api/v1/demo/stream/nested?access_token=YOUR_TOKEN&max_wait_sec=30" | head -n 80

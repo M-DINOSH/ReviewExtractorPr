@@ -10,6 +10,7 @@ WORKDIR /app
 # Install system dependencies (snappy compression library)
 RUN apt-get update && apt-get install -y \
 	libsnappy-dev \
+	curl \
 	&& rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

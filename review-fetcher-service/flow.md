@@ -32,7 +32,10 @@
 
 - **Web UI**: `GET /demo`
 - **One-shot nested output (runs Kafka pipeline)**: `POST /api/v1/demo/nested`
-- **Kafka aggregated nested stream (SSE)**:
+- **Kafka aggregated nested stream (SSE, production)**:
+  - Production-safe (recommended): `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
+  - Stream an existing job: `GET /api/v1/stream/nested?job_id=...`
+- **Kafka aggregated nested stream (SSE, demo-only)**:
   - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
   - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 

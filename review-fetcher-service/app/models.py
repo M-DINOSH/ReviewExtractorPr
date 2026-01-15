@@ -54,6 +54,28 @@ class ReviewFetchResponse(BaseModel):
         }
 
 
+class StreamSessionRequest(BaseModel):
+    """Request to create a short-lived stream session.
+
+    This is used to avoid placing access tokens in the URL for SSE (EventSource cannot set headers).
+    """
+
+    access_token: str = Field(..., min_length=1, description="Access token (same rules as ReviewFetchRequest)")
+
+    @validator("access_token")
+    def validate_stream_token_format(cls, v: str) -> str:
+        if not v or len(v.strip()) == 0:
+            raise ValueError("access_token cannot be empty")
+        return v.strip()
+
+
+class StreamSessionResponse(BaseModel):
+    """Response containing the session id used by the SSE GET endpoint."""
+
+    session_id: str = Field(description="Short-lived session identifier")
+    expires_in_sec: int = Field(description="Session TTL in seconds")
+
+
 class FetchAccountsEvent(BaseModel):
     """Kafka event: initiate accounts fetch"""
     job_id: str

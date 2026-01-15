@@ -64,7 +64,7 @@ async def demo_page() -> HTMLResponse:
 
   <div class=\"card\" style=\"margin-top: 12px;\">
         <h2>Final nested output (Kafka pipeline)</h2>
-        <div class=\"muted\">Runs the same pipeline as production (API → Kafka → workers). Mock vs real is controlled by <code>MOCK_GOOGLE_API</code>.</div>
+        <div class=\"muted\">Aggregates Kafka topics into one nested output by job_id. Uses the same access token from above.</div>\
     <div class=\"row\">
       <label for=\"token\"><b>Access token</b></label>
             <input id=\"token\" placeholder=\"paste token (mock mode accepts any non-empty token)\" />
@@ -75,12 +75,12 @@ async def demo_page() -> HTMLResponse:
 
   <div class=\"card\" style=\"margin-top: 12px;\">
     <h2>Kafka nested stream (SSE)</h2>
-    <div class=\"muted\">Aggregates Kafka topics into one nested output by job_id.</div>
+        <div class=\"muted\">Production-safe streaming (token in POST body → session_id, then SSE).</div>
 
     <div class=\"row\">
       <button id=\"startBtn\">Start review fetch + stream</button>
-      <span class=\"pill\">API: <code>/api/v1/review-fetch</code></span>
-      <span class=\"pill\">Stream: <code>/api/v1/demo/stream/nested</code></span>
+            <span class=\"pill\">API: <code>/api/v1/stream-session</code></span>
+            <span class=\"pill\">Stream: <code>/api/v1/stream/nested</code></span>
     </div>
 
     <div class=\"row\" style=\"justify-content: space-between;\">
@@ -120,20 +120,41 @@ async def demo_page() -> HTMLResponse:
     let esNested = null;
     let latestNested = null;
 
+        function computeCountsFromPayload(p) {
+            if (!p || typeof p !== 'object') return { accounts: 0, locations: 0, reviews: 0 };
+            if (p.stats && typeof p.stats === 'object') {
+                return {
+                    accounts: Number(p.stats.accounts || 0),
+                    locations: Number(p.stats.locations || 0),
+                    reviews: Number(p.stats.reviews || 0),
+                };
+            }
+
+            // Fallback (shouldn't be needed): count from accounts/locations/reviews.
+            let accounts = 0;
+            let locations = 0;
+            let reviews = 0;
+            if (Array.isArray(p.accounts)) {
+                accounts = p.accounts.length;
+                for (const a of p.accounts) {
+                    if (Array.isArray(a.locations)) {
+                        locations += a.locations.length;
+                        for (const l of a.locations) {
+                            if (Array.isArray(l.reviews)) reviews += l.reviews.length;
+                        }
+                    }
+                }
+            }
+            return { accounts, locations, reviews };
+        }
+
     function render() {
       if (latestNested) {
         outNested.textContent = pretty(latestNested);
-        const acc = latestNested.account ? 1 : 0;
-        const locCount = Array.isArray(latestNested.locations) ? latestNested.locations.length : 0;
-        let revCount = 0;
-        if (Array.isArray(latestNested.locations)) {
-          for (const l of latestNested.locations) {
-            if (Array.isArray(l.reviews)) revCount += l.reviews.length;
-          }
-        }
-        countAccountsEl.textContent = String(acc);
-        countLocationsEl.textContent = String(locCount);
-        countReviewsEl.textContent = String(revCount);
+                const c = computeCountsFromPayload(latestNested);
+                countAccountsEl.textContent = String(c.accounts);
+                countLocationsEl.textContent = String(c.locations);
+                countReviewsEl.textContent = String(c.reviews);
       } else {
         outNested.textContent = '{}';
         countAccountsEl.textContent = '0';
@@ -152,8 +173,35 @@ async def demo_page() -> HTMLResponse:
       latestNested = null;
       render();
 
-            // Start streaming first; the server will create a new job after seeking Kafka to the end.
-            esNested = new EventSource(`/api/v1/demo/stream/nested?access_token=${encodeURIComponent('test_token_123456789')}&max_wait_sec=60&max_locations=200&max_reviews_per_location=200`);
+            const access_token = document.getElementById('token').value || '';
+            if (!access_token.trim()) {
+                startBtn.disabled = false;
+                alert('Please paste an access token first. In mock mode any non-empty value works.');
+                return;
+            }
+
+                        // 1) Create short-lived session_id (keeps token out of the URL).
+                        const sessResp = await fetch('/api/v1/stream-session', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ access_token })
+                        });
+                        if (!sessResp.ok) {
+                            startBtn.disabled = false;
+                            const txt = await sessResp.text();
+                            alert(`Failed to create stream session (${sessResp.status}): ${txt}`);
+                            return;
+                        }
+                        const sess = await sessResp.json();
+                        const session_id = sess.session_id;
+                        if (!session_id) {
+                            startBtn.disabled = false;
+                            alert('Stream session response missing session_id');
+                            return;
+                        }
+
+                        // 2) Start SSE stream; server will attach, then create a new job and emit event: job.
+                        esNested = new EventSource(`/api/v1/stream/nested?session_id=${encodeURIComponent(session_id)}&max_wait_sec=60&max_accounts=50&max_locations_total=200&max_reviews_per_location=200`);
             esNested.addEventListener('job', (ev) => {
                 try {
                     const info = JSON.parse(ev.data);

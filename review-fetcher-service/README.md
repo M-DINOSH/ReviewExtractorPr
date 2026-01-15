@@ -35,7 +35,7 @@
 cd review-fetcher-service
 
 # Start all services (Zookeeper, Kafka, Review Fetcher)
-docker compose up -d
+docker compose up -d --build
 
 # Check status
 docker compose ps
@@ -69,15 +69,101 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
 
 - Web demo page (Kafka pipeline + nested aggregation): http://localhost:8084/demo
 - One-shot nested output (runs Kafka pipeline and returns final JSON): `POST /api/v1/demo/nested`
-- Kafka aggregated nested stream (SSE):
+- Production nested stream (SSE, Kafka-backed):
+    - Production-safe (no token in URL): `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
+    - Stream an existing job: `GET /api/v1/stream/nested?job_id=...`
+- Demo nested stream (SSE, token-in-URL; for local/demo-only testing):
     - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
     - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 - CLI demo (triggers job + prints nested JSON): `python kafka_stream_demo.py`
+
+Note:
+- The `/demo` webpage uses the **production** endpoints (`/api/v1/stream-session` + `/api/v1/stream/nested`) so your browser never puts the OAuth token in the URL.
 
 ### Interactive Documentation
 - **Swagger UI**: http://localhost:8084/docs
 - **ReDoc**: http://localhost:8084/redoc
 - **Kafka UI**: http://localhost:8080
+
+---
+
+## Frontend Integration (What to Call + How to Read Output)
+
+Treat this service as a **job-based pipeline**:
+1) submit a job once, 2) consume results keyed by `job_id`.
+
+### 1) Frontend → submit the job
+
+Endpoint:
+- `POST /api/v1/review-fetch`
+
+Request body:
+```json
+{ "access_token": "..." }
+```
+
+Response (example):
+```json
+{ "job_id": "...", "status": "queued", "message": "Job enqueued for processing" }
+```
+
+Notes:
+- In mock mode (`MOCK_GOOGLE_API=true`), any non-empty token is accepted.
+- In real mode (`MOCK_GOOGLE_API=false`), token validity is determined by actual Google API responses.
+
+### 2) How your team consumes results
+
+You have two integration options depending on whether you want **UI streaming** or **backend processing**.
+
+#### Option A (recommended for UI): stream nested output via SSE (production-safe)
+
+Because browser `EventSource(...)` cannot set auth headers, you should avoid putting OAuth tokens in the URL.
+
+Recommended flow:
+1) `POST /api/v1/stream-session` with `{ "access_token": "..." }`
+2) `GET /api/v1/stream/nested?session_id=<session_id>` (SSE)
+
+SSE emits:
+- `event: job` (includes `job_id`)
+- `event: nested` (progress updates; `{job_id, accounts:[...], joins_ok, stats}`)
+- `event: done`
+
+Minimal browser example:
+```js
+// 1) Create a short-lived session (token is in POST body, not in the URL)
+const r = await fetch('/api/v1/stream-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ access_token })
+});
+const { session_id } = await r.json();
+
+// 2) Open SSE stream
+const es = new EventSource(`/api/v1/stream/nested?session_id=${encodeURIComponent(session_id)}&max_wait_sec=60`);
+es.addEventListener('job', (ev) => {
+    const { job_id } = JSON.parse(ev.data);
+    console.log('job_id', job_id);
+});
+es.addEventListener('nested', (ev) => {
+    const payload = JSON.parse(ev.data);
+    console.log('nested update', payload);
+});
+es.addEventListener('done', () => es.close());
+```
+
+If your frontend already has a `job_id` (created via `POST /api/v1/review-fetch`):
+- `GET /api/v1/stream/nested?job_id=<job_id>`
+
+Demo-only shortcut (not recommended for production because token is in URL):
+- `GET /api/v1/demo/stream/nested?access_token=<token>`
+
+#### Option B (recommended for backend pipelines): consume Kafka `reviews-raw`
+
+If your team wants to store/process reviews outside this service (e.g., sentiment, analytics), consume Kafka directly:
+- Topic: `reviews-raw`
+- Filter/group by `job_id` if you want per-request aggregation.
+
+This gives you one message per review and avoids coupling consumers to the demo/SSE aggregator.
 
 ---
 
