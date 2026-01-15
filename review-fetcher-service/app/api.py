@@ -46,7 +46,7 @@ class APIService:
         Validate Google OAuth access token
         Uses GoogleAPIClient which handles both mock and real API
         """
-        if not token or len(token) < 10:
+        if not token or len(token.strip()) == 0:
             return False
         
         try:

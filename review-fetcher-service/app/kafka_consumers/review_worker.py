@@ -1,5 +1,6 @@
-"""
-Review Worker - Consumes fetch-reviews events and publishes reviews from mock data
+"""Review Worker - Consumes fetch-reviews and publishes reviews-raw.
+
+Uses GoogleAPIClient which supports both mock data (jsom/) and the real Google APIs.
 """
 
 import asyncio
@@ -11,7 +12,50 @@ from app.kafka_consumers.base import AIokafkaConsumer, MockKafkaConsumer
 from app.rate_limiter import TokenBucketLimiter
 from app.retry import RetryScheduler
 from app.kafka_producer import KafkaEventPublisher
-from app.services.mock_data import mock_data_service
+from app.services.google_api import google_api_client
+
+
+_STAR_RATING_MAP: dict[str, int] = {
+    "ONE": 1,
+    "TWO": 2,
+    "THREE": 3,
+    "FOUR": 4,
+    "FIVE": 5,
+}
+
+
+def _normalize_review_id(review: dict) -> str | None:
+    rid = review.get("reviewId") or review.get("review_id") or review.get("id") or review.get("name")
+    if rid is None:
+        return None
+    if isinstance(rid, str) and "/" in rid:
+        return rid.split("/")[-1]
+    return str(rid)
+
+
+def _normalize_rating(review: dict) -> int | None:
+    val = review.get("rating")
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str) and val.isdigit():
+        return int(val)
+
+    star = review.get("starRating") or review.get("star_rating")
+    if isinstance(star, str):
+        star = star.strip().upper()
+        if star in _STAR_RATING_MAP:
+            return _STAR_RATING_MAP[star]
+    return None
+
+
+def _normalize_reviewer_name(review: dict) -> str | None:
+    direct = review.get("reviewer_name") or review.get("reviewerName")
+    if direct:
+        return str(direct)
+    reviewer = review.get("reviewer")
+    if isinstance(reviewer, dict):
+        return reviewer.get("displayName") or reviewer.get("name")
+    return None
 
 logger = structlog.get_logger()
 
@@ -75,10 +119,12 @@ class ReviewWorker:
         await self.consumer.consume()
     
     async def _on_message(self, message: dict) -> None:
-        """Process fetch-reviews event - fetch reviews from mock data"""
+        """Process fetch-reviews event."""
         try:
             job_id = message.get("job_id")
             location_id = message.get("location_id")
+            account_id = message.get("account_id")
+            access_token = message.get("access_token")
             
             logger.info("processing_fetch_reviews", job_id=job_id, location_id=location_id)
             
@@ -93,8 +139,8 @@ class ReviewWorker:
                 )
                 return
             
-            # Fetch reviews from mock data
-            reviews = await mock_data_service.get_reviews(location_id)
+            # Fetch reviews (mock or real, depending on MOCK_GOOGLE_API)
+            reviews = await google_api_client.get_reviews(str(account_id), str(location_id), str(access_token))
             
             if not reviews:
                 logger.info("no_reviews_found", job_id=job_id, location_id=location_id)
@@ -105,7 +151,9 @@ class ReviewWorker:
             
             # Process each review
             for review in reviews:
-                review_id = review.get("id")
+                review_id = _normalize_review_id(review)
+                if not review_id:
+                    continue
                 
                 # Deduplication check
                 if review_id in self.seen_reviews[job_id]:
@@ -115,14 +163,21 @@ class ReviewWorker:
                 self.seen_reviews[job_id].add(review_id)
                 
                 # Publish to reviews-raw topic
+                rating = _normalize_rating(review)
+                if rating is None:
+                    # Default to 5 in mock-like cases where rating is missing
+                    rating = 5
+
+                text = review.get("comment") or review.get("text") or ""
+                reviewer_name = _normalize_reviewer_name(review) or ""
                 success = await self.event_publisher.publish_review_raw_event(
                     job_id=job_id,
                     review_id=review_id,
                     location_id=location_id,
-                    account_id=message.get("account_id"),
-                    rating=review.get("rating"),
-                    text=review.get("comment"),
-                    reviewer_name=review.get("reviewer_name"),
+                    account_id=account_id,
+                    rating=rating,
+                    text=str(text),
+                    reviewer_name=str(reviewer_name),
                     record_id=review.get("id"),
                     client_id=review.get("client_id"),
                     google_review_id=review.get("google_review_id"),

@@ -1,5 +1,6 @@
-"""
-Location Worker - Consumes fetch-locations events and fetches locations from mock data
+"""Location Worker - Consumes fetch-locations and publishes fetch-reviews.
+
+Uses GoogleAPIClient which supports both mock data (jsom/) and the real Google APIs.
 """
 
 import asyncio
@@ -10,7 +11,7 @@ from app.kafka_consumers.base import AIokafkaConsumer, MockKafkaConsumer
 from app.rate_limiter import TokenBucketLimiter
 from app.retry import RetryScheduler
 from app.kafka_producer import KafkaEventPublisher
-from app.services.mock_data import mock_data_service
+from app.services.google_api import google_api_client
 
 logger = structlog.get_logger()
 
@@ -70,10 +71,26 @@ class LocationWorker:
         await self.consumer.consume()
     
     async def _on_message(self, message: dict) -> None:
-        """Process fetch-locations event - fetch locations from mock data"""
+        """Process fetch-locations event."""
         try:
             job_id = message.get("job_id")
             account_id = message.get("account_id")
+            access_token = message.get("access_token")
+
+            def _extract_numeric_id(value) -> int | None:
+                if value is None:
+                    return None
+                if isinstance(value, int):
+                    return value
+                s = str(value)
+                if "/" in s:
+                    s = s.split("/")[-1]
+                try:
+                    return int(s)
+                except Exception:
+                    return None
+
+            account_id_int = _extract_numeric_id(account_id)
             
             logger.info("processing_fetch_locations", job_id=job_id, account_id=account_id)
             
@@ -88,8 +105,8 @@ class LocationWorker:
                 )
                 return
             
-            # Fetch locations from mock data
-            locations = await mock_data_service.get_locations(account_id)
+            # Fetch locations (mock or real, depending on MOCK_GOOGLE_API)
+            locations = await google_api_client.get_locations(str(account_id), str(access_token))
             
             if not locations:
                 logger.warning("no_locations_found", job_id=job_id, account_id=account_id)
@@ -97,15 +114,40 @@ class LocationWorker:
             
             # Publish fetch-reviews event for each location
             for location in locations:
+                raw_location_name = location.get("name")
+                # In real responses, location resource name is typically
+                # "accounts/{account}/locations/{location}".
+                derived_location_id = None
+                if isinstance(raw_location_name, str) and "/locations/" in raw_location_name:
+                    derived_location_id = raw_location_name.split("/locations/")[-1]
+
+                location_id = (
+                    location.get("location_id")
+                    or location.get("id")
+                    or derived_location_id
+                )
+
+                location_title = (
+                    location.get("location_title")
+                    or location.get("title")
+                    or location.get("locationName")
+                    or raw_location_name
+                    or str(location_id)
+                )
+
+                google_account_id = location.get("google_account_id")
+                if google_account_id is None and account_id_int is not None:
+                    google_account_id = account_id_int
+
                 success = await self.event_publisher.publish_fetch_reviews_event(
                     job_id=job_id,
                     account_id=account_id,
-                    location_id=location["location_id"],
-                    location_name=location["location_title"],
-                    access_token=message.get("access_token"),
+                    location_id=str(location_id),
+                    location_name=str(location_title),
+                    access_token=access_token,
                     record_id=location.get("id"),
                     client_id=location.get("client_id"),
-                    google_account_id=location.get("google_account_id"),
+                    google_account_id=google_account_id,
                     location_title=location.get("location_title"),
                     address=location.get("address"),
                     phone=location.get("phone"),
@@ -118,7 +160,7 @@ class LocationWorker:
                     logger.error(
                         "failed_to_publish_reviews_event",
                         job_id=job_id,
-                        location_id=location["location_id"]
+                        location_id=str(location_id),
                     )
             
             logger.info("locations_processed", job_id=job_id, account_id=account_id, count=len(locations))

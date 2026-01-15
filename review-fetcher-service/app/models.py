@@ -21,7 +21,7 @@ class JobStatus(str, Enum):
 
 class ReviewFetchRequest(BaseModel):
     """API request model for initiating review fetch"""
-    access_token: str = Field(..., min_length=10, description="Google OAuth access token")
+    access_token: str = Field(..., min_length=1, description="Access token (mock mode accepts any non-empty string; real mode requires a valid Google OAuth token)")
     
     @validator("access_token")
     def validate_token_format(cls, v: str) -> str:

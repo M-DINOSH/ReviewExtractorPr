@@ -484,11 +484,28 @@ async def demo_stream_nested(
         deadline = time.time() + max_wait_sec
         dirty = False
 
+        def _as_int_id(value: Any) -> Optional[int]:
+            if value is None:
+                return None
+            try:
+                s = str(value)
+                if "/" in s:
+                    s = s.split("/")[-1]
+                return int(s)
+            except Exception:
+                return None
+
         def build_nested() -> dict[str, Any]:
             locs: list[dict[str, Any]] = []
             for loc_id, loc in locations_by_id.items():
                 loc_with_reviews = dict(loc)
-                loc_reviews = reviews_by_location_id.get(loc_id, [])[:max_reviews_per_location]
+                all_reviews = reviews_by_location_id.get(loc_id, [])
+                if account_id is not None:
+                    all_reviews = [
+                        r for r in all_reviews
+                        if _as_int_id(r.get("account_id")) == int(account_id)
+                    ]
+                loc_reviews = all_reviews[:max_reviews_per_location]
                 loc_with_reviews["reviews"] = loc_reviews
                 locs.append(loc_with_reviews)
             locs.sort(key=lambda x: int(x.get("location_id", x.get("id", 0)) or 0))
@@ -522,7 +539,7 @@ async def demo_stream_nested(
                 if not joins_ok_reviews:
                     break
 
-            total_reviews = sum(len(v) for v in reviews_by_location_id.values())
+            total_reviews = sum(len(loc.get("reviews") or []) for loc in locs)
 
             return {
                 "account": account_obj,
@@ -611,12 +628,14 @@ async def demo_stream_nested(
                     dirty = True
 
                 elif msg.topic == "reviews-raw":
-                    try:
-                        loc_id = int(payload.get("location_id", -1))
-                    except Exception:
+                    loc_id = _as_int_id(payload.get("location_id"))
+                    if loc_id is None:
                         continue
-                    if account_id is not None and loc_id not in locations_by_id:
+
+                    review_account_id = _as_int_id(payload.get("account_id"))
+                    if account_id is not None and review_account_id is not None and review_account_id != int(account_id):
                         continue
+
                     reviews_by_location_id.setdefault(loc_id, [])
                     if len(reviews_by_location_id[loc_id]) >= max_reviews_per_location:
                         continue
@@ -624,6 +643,7 @@ async def demo_stream_nested(
                         {
                             "id": payload.get("id"),
                             "client_id": payload.get("client_id"),
+                            "account_id": payload.get("account_id"),
                             "location_id": payload.get("location_id"),
                             "google_review_id": payload.get("google_review_id"),
                             "rating": payload.get("rating"),

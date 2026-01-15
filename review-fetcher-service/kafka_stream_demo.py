@@ -103,6 +103,20 @@ class KafkaStreamingDemo:
             group_id=f"demo_nested_{int(datetime.now().timestamp())}",
         )
 
+        def _as_int_id(value):
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return value
+            s = str(value)
+            # Handle Google resource names like "accounts/123" or ".../locations/456".
+            if "/" in s:
+                s = s.split("/")[-1]
+            try:
+                return int(s)
+            except Exception:
+                return None
+
         account = None
         account_id = None
         locations_by_id: dict[int, dict] = {}
@@ -112,22 +126,31 @@ class KafkaStreamingDemo:
             locations = []
             for loc_id, loc in locations_by_id.items():
                 loc_out = dict(loc)
-                loc_out["reviews"] = list(reviews_by_location_id.get(loc_id, []))
+                loc_reviews = list(reviews_by_location_id.get(loc_id, []))
+                if account_id is not None:
+                    loc_reviews = [
+                        r for r in loc_reviews
+                        if _as_int_id(r.get("account_id")) == _as_int_id(account_id)
+                    ]
+                loc_out["reviews"] = loc_reviews
                 locations.append(loc_out)
-            locations.sort(key=lambda x: int(x.get("location_id", 0) or 0))
+            locations.sort(key=lambda x: _as_int_id(x.get("location_id")) or 0)
             joins_ok = {
                 "account.account_id == location.google_account_id": True,
                 "location.location_id == review.location_id": True,
             }
             if account_id is not None:
                 for l in locations:
-                    if int(l.get("google_account_id", -999999)) != int(account_id):
+                    if (_as_int_id(l.get("google_account_id")) != _as_int_id(account_id)):
                         joins_ok["account.account_id == location.google_account_id"] = False
                         break
             for l in locations:
-                lid = int(l.get("location_id", -999999))
+                lid = _as_int_id(l.get("location_id"))
+                if lid is None:
+                    joins_ok["location.location_id == review.location_id"] = False
+                    break
                 for r in l.get("reviews", []) or []:
-                    if int(r.get("location_id", -999999)) != lid:
+                    if (_as_int_id(r.get("location_id")) != lid):
                         joins_ok["location.location_id == review.location_id"] = False
                         break
                 if not joins_ok["location.location_id == review.location_id"]:
@@ -137,7 +160,7 @@ class KafkaStreamingDemo:
                 "locations": locations,
                 "stats": {
                     "locations": len(locations),
-                    "reviews": sum(len(v) for v in reviews_by_location_id.values()),
+                    "reviews": sum(len(l.get("reviews") or []) for l in locations),
                 },
                 "joins_ok": joins_ok,
             }
@@ -161,7 +184,9 @@ class KafkaStreamingDemo:
                         acc_id = payload.get("account_id")
                         if acc_id is None:
                             continue
-                        account_id = int(acc_id)
+                        account_id = _as_int_id(acc_id)
+                        if account_id is None:
+                            continue
                         account = {
                             "id": payload.get("id", account_id),
                             "account_id": payload.get("account_id", account_id),
@@ -176,9 +201,11 @@ class KafkaStreamingDemo:
                 elif msg.topic == "fetch-reviews":
                     if account_id is None:
                         continue
-                    if int(payload.get("google_account_id", -1)) != int(account_id):
+                    if _as_int_id(payload.get("google_account_id")) != _as_int_id(account_id):
                         continue
-                    loc_id = int(payload.get("location_id", payload.get("id")))
+                    loc_id = _as_int_id(payload.get("location_id", payload.get("id")))
+                    if loc_id is None:
+                        continue
                     if loc_id in locations_by_id:
                         continue
                     locations_by_id[loc_id] = {
@@ -196,12 +223,18 @@ class KafkaStreamingDemo:
                     }
 
                 elif msg.topic == "reviews-raw":
-                    loc_id = int(payload.get("location_id", -1))
-                    if account_id is not None and loc_id not in locations_by_id:
+                    loc_id = _as_int_id(payload.get("location_id"))
+                    if loc_id is None:
                         continue
+
+                    review_account_id = _as_int_id(payload.get("account_id"))
+                    if account_id is not None and review_account_id is not None and review_account_id != _as_int_id(account_id):
+                        continue
+
                     review = {
                         "id": payload.get("id"),
                         "client_id": payload.get("client_id"),
+                        "account_id": payload.get("account_id"),
                         "location_id": payload.get("location_id"),
                         "google_review_id": payload.get("google_review_id"),
                         "rating": payload.get("rating"),

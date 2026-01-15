@@ -55,16 +55,13 @@ class GoogleAPIClient:
 
     async def validate_token(self, access_token: str):
         """Validate access token - in mock mode, accept any token"""
-        # In mock mode, accept any token that's at least 10 chars
+        # In mock mode, accept any non-empty token.
+        # The token is still forwarded through Kafka so that the production flow is identical.
         if self.use_mock:
-            logger.info("Token validation skipped in mock mode", token_length=len(access_token))
-            return {"valid": True}
+            logger.info("Token validation skipped in mock mode", token_length=len(access_token or ""))
+            return {"valid": bool(access_token)}
         
         try:
-            # Validate that token starts with 'ya29' (Google OAuth tokens)
-            if not access_token.startswith('ya29'):
-                raise GoogleAPIError("Invalid token format. Must be a valid Google OAuth token starting with 'ya29'")
-
             # Test token by making a simple API call to accounts endpoint
             try:
                 await self._get("https://mybusinessbusinessinformation.googleapis.com/v1/accounts", access_token)
@@ -85,11 +82,10 @@ class GoogleAPIClient:
             raise GoogleAPIError(f"Token validation failed: {str(e)}")
 
     async def get_accounts(self, access_token: str):
-        """Get accounts from Google Business Profile API or mock data"""
-        # Use mock data if in mock mode
+        """Get accounts list from Google Business Profile API or mock data."""
         if self.use_mock:
             logger.info("Fetching accounts from mock data")
-            return await mock_data_service.get_accounts(access_token)
+            return await mock_data_service.get_accounts()
         
         try:
             url = "https://mybusinessbusinessinformation.googleapis.com/v1/accounts"
@@ -98,7 +94,7 @@ class GoogleAPIClient:
             accounts_count = len(response_data.get("accounts", []))
             logger.info("Successfully fetched accounts from Google API (count=%d)", accounts_count)
 
-            return response_data
+            return response_data.get("accounts", [])
 
         except httpx.HTTPStatusError as e:
             logger.error(
@@ -117,11 +113,10 @@ class GoogleAPIClient:
             raise GoogleAPIError(f"Failed to fetch accounts: {str(e)}")
 
     async def get_locations(self, account_id: str, access_token: str):
-        """Get locations for account from Google Business Profile API or mock data"""
-        # Use mock data if in mock mode
+        """Get locations list for an account from Google Business Profile API or mock data."""
         if self.use_mock:
             logger.info("Fetching locations from mock data for account=%s", account_id)
-            return await mock_data_service.get_locations(account_id, access_token)
+            return await mock_data_service.get_locations(account_id)
         
         try:
             # Extract account name from full account resource name if needed
@@ -138,7 +133,7 @@ class GoogleAPIClient:
                 locations_count,
             )
 
-            return response_data
+            return response_data.get("locations", [])
 
         except httpx.HTTPStatusError as e:
             logger.error(
@@ -158,11 +153,11 @@ class GoogleAPIClient:
             raise GoogleAPIError(f"Failed to fetch locations: {str(e)}")
 
     async def get_reviews(self, account_id: str, location_id: str, access_token: str):
-        """Get reviews for location from Google My Business API or mock data"""
-        # Use mock data if in mock mode
+        """Get reviews list for a location from Google My Business API or mock data."""
         if self.use_mock:
             logger.info("Fetching reviews from mock data for account=%s, location=%s", account_id, location_id)
-            return await mock_data_service.get_reviews(account_id, location_id, access_token)
+            # Mock reviews are keyed by location_id only.
+            return await mock_data_service.get_reviews(int(str(location_id).split("/")[-1]))
         
         try:
             # Extract account and location IDs from resource names if needed
@@ -182,7 +177,7 @@ class GoogleAPIClient:
                 reviews_count,
             )
 
-            return response_data
+            return response_data.get("reviews", [])
 
         except httpx.HTTPStatusError as e:
             logger.error(
