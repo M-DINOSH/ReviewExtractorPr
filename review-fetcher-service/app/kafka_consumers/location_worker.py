@@ -102,7 +102,16 @@ class LocationWorker:
                     account_id=account_id,
                     location_id=location["location_id"],
                     location_name=location["location_title"],
-                    access_token=message.get("access_token")
+                    access_token=message.get("access_token"),
+                    record_id=location.get("id"),
+                    client_id=location.get("client_id"),
+                    google_account_id=location.get("google_account_id"),
+                    location_title=location.get("location_title"),
+                    address=location.get("address"),
+                    phone=location.get("phone"),
+                    category=location.get("category"),
+                    created_at=location.get("created_at"),
+                    updated_at=location.get("updated_at"),
                 )
                 
                 if not success:

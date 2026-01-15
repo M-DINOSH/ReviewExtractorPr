@@ -122,7 +122,17 @@ class ReviewWorker:
                     account_id=message.get("account_id"),
                     rating=review.get("rating"),
                     text=review.get("comment"),
-                    reviewer_name=review.get("reviewer_name")
+                    reviewer_name=review.get("reviewer_name"),
+                    record_id=review.get("id"),
+                    client_id=review.get("client_id"),
+                    google_review_id=review.get("google_review_id"),
+                    comment=review.get("comment"),
+                    reviewer_photo_url=review.get("reviewer_photo_url"),
+                    review_created_time=review.get("review_created_time"),
+                    reply_text=review.get("reply_text"),
+                    reply_time=review.get("reply_time"),
+                    created_at=review.get("created_at"),
+                    updated_at=review.get("updated_at"),
                 )
                 
                 if success:

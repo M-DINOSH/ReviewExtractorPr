@@ -50,9 +50,18 @@ class MockDataService:
         accounts = []
         for account in self.accounts_data:
             accounts.append({
+                # Original fields expected by existing workers
                 "id": account["id"],
                 "name": account["google_account_name"],
-                "display_name": account["account_display_name"]
+                "display_name": account["account_display_name"],
+
+                # Full schema fields (used by demo/web output)
+                "account_id": account.get("account_id", account["id"]),
+                "client_id": account.get("client_id"),
+                "google_account_name": account.get("google_account_name"),
+                "account_display_name": account.get("account_display_name"),
+                "created_at": account.get("created_at"),
+                "updated_at": account.get("updated_at"),
             })
         return accounts
     

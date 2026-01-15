@@ -263,7 +263,13 @@ class KafkaEventPublisher:
         job_id: str,
         account_id: str,
         account_name: str,
-        access_token: str = "mock_token"
+        access_token: str = "mock_token",
+        google_account_name: Optional[str] = None,
+        account_display_name: Optional[str] = None,
+        client_id: Optional[int] = None,
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None,
+        record_id: Optional[int] = None,
     ) -> bool:
         """Publish event to fetch locations"""
         message = {
@@ -274,6 +280,20 @@ class KafkaEventPublisher:
             "access_token": access_token,
             "timestamp": datetime.utcnow().isoformat()
         }
+
+        # Optional schema-enrichment (used by demo web output)
+        if record_id is not None:
+            message["id"] = record_id
+        if client_id is not None:
+            message["client_id"] = client_id
+        if google_account_name is not None:
+            message["google_account_name"] = google_account_name
+        if account_display_name is not None:
+            message["account_display_name"] = account_display_name
+        if created_at is not None:
+            message["created_at"] = created_at
+        if updated_at is not None:
+            message["updated_at"] = updated_at
         
         return await self.producer.send(
             topic="fetch-locations",
@@ -287,7 +307,16 @@ class KafkaEventPublisher:
         account_id: str,
         location_id: str,
         location_name: str,
-        access_token: str = "mock_token"
+        access_token: str = "mock_token",
+        record_id: Optional[int] = None,
+        client_id: Optional[int] = None,
+        google_account_id: Optional[int] = None,
+        location_title: Optional[str] = None,
+        address: Optional[str] = None,
+        phone: Optional[str] = None,
+        category: Optional[str] = None,
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None,
     ) -> bool:
         """Publish event to fetch reviews"""
         message = {
@@ -299,6 +328,26 @@ class KafkaEventPublisher:
             "access_token": access_token,
             "timestamp": datetime.utcnow().isoformat()
         }
+
+        # Optional schema-enrichment (used by demo web output)
+        if record_id is not None:
+            message["id"] = record_id
+        if client_id is not None:
+            message["client_id"] = client_id
+        if google_account_id is not None:
+            message["google_account_id"] = google_account_id
+        if location_title is not None:
+            message["location_title"] = location_title
+        if address is not None:
+            message["address"] = address
+        if phone is not None:
+            message["phone"] = phone
+        if category is not None:
+            message["category"] = category
+        if created_at is not None:
+            message["created_at"] = created_at
+        if updated_at is not None:
+            message["updated_at"] = updated_at
         
         return await self.producer.send(
             topic="fetch-reviews",
@@ -314,7 +363,17 @@ class KafkaEventPublisher:
         account_id: str,
         rating: int,
         text: str,
-        reviewer_name: str
+        reviewer_name: str,
+        record_id: Optional[int] = None,
+        client_id: Optional[int] = None,
+        google_review_id: Optional[str] = None,
+        comment: Optional[str] = None,
+        reviewer_photo_url: Optional[str] = None,
+        review_created_time: Optional[str] = None,
+        reply_text: Optional[str] = None,
+        reply_time: Optional[str] = None,
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None,
     ) -> bool:
         """Publish raw review to reviews-raw topic"""
         message = {
@@ -328,6 +387,28 @@ class KafkaEventPublisher:
             "reviewer_name": reviewer_name,
             "timestamp": datetime.utcnow().isoformat()
         }
+
+        # Optional schema-enrichment (used by demo web output)
+        if record_id is not None:
+            message["id"] = record_id
+        if client_id is not None:
+            message["client_id"] = client_id
+        if google_review_id is not None:
+            message["google_review_id"] = google_review_id
+        if comment is not None:
+            message["comment"] = comment
+        if reviewer_photo_url is not None:
+            message["reviewer_photo_url"] = reviewer_photo_url
+        if review_created_time is not None:
+            message["review_created_time"] = review_created_time
+        if reply_text is not None:
+            message["reply_text"] = reply_text
+        if reply_time is not None:
+            message["reply_time"] = reply_time
+        if created_at is not None:
+            message["created_at"] = created_at
+        if updated_at is not None:
+            message["updated_at"] = updated_at
         
         return await self.producer.send(
             topic="reviews-raw",

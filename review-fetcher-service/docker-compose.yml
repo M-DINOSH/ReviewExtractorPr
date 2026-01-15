@@ -81,7 +81,7 @@ services:
       ENVIRONMENT: development
       
       # Feature Flags
-      MOCK_GOOGLE_API: "true"              # Set to "true" for mock data, "false" for real Google API
+      MOCK_GOOGLE_API: "${MOCK_GOOGLE_API:-true}"  # true=mock jsom data, false=real Google API
       
       # Kafka Configuration
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092  # Use container name (not localhost)
@@ -112,7 +112,7 @@ services:
       - ./jsom:/app/jsom            # Mount mock data files
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 3

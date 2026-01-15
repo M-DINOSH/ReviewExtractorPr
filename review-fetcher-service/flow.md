@@ -16,17 +16,25 @@
 ### What This Service Does
 - ✅ Accepts Google OAuth tokens via REST API
 - ✅ Fetches accounts, locations, and reviews from Google Business Profile API
-- ✅ Implements rate limiting (300 QPM Google quota)
+- ✅ Implements rate limiting (config-driven; defaults are 10 req/sec with burst capacity 100)
 - ✅ Handles transient errors with exponential backoff retry
 - ✅ Deduplicates reviews per job
 - ✅ Outputs clean reviews to Kafka for downstream processing
 
 ### Key Constraints
-- **Google API Rate**: 300 queries per minute (across all workers)
-- **Distributed Rate Limiting**: Per-worker isolation (100 tokens/10s each)
+- **Google API Rate**: Config-driven (see `GOOGLE_REQUESTS_PER_SECOND`, `RATELIMIT_*`)
+- **Distributed Rate Limiting**: Per-worker limiter (defaults: capacity=100, refill=10 tokens/sec)
 - **Job Deduplication**: Per job_id (resets after job completion)
 - **Retry Strategy**: 3 attempts with 100ms-10s exponential backoff
 - **Buffer Size**: 10,000 items (returns 429 when full)
+
+### Demo Output (Nested)
+
+- **Web UI**: `GET /demo`
+- **Direct nested output (no Kafka)**: `POST /api/v1/demo/nested`
+- **Kafka aggregated nested stream (SSE)**: `GET /api/v1/demo/stream/nested?job_id=...`
+
+The nested output format is: account → all locations for that account → all reviews for each location.
 
 ---
 
@@ -175,7 +183,8 @@
 ┌─────────────────────────────────────────────────────┐
 │ GOOGLE API CALL                                     │
 │                                                      │
-│ Endpoint: GET /google_api/v2/accounts               │
+│ Endpoint (REAL mode): GET https://mybusinessbusinessinformation.googleapis.com/v1/accounts │
+│ Endpoint (MOCK mode): served from jsom/accounts.json │
 │ Header: Authorization: Bearer {token}               │
 │ Retry: tenacity (3 attempts)                        │
 │                                                      │
@@ -230,8 +239,9 @@ Input Topic: fetch-locations
 Output Topic: fetch-reviews
 
 For each account in message:
-  ├─ Rate limit check (100 tokens/10s)
-  ├─ Google API: GET /accounts/{id}/locations
+  ├─ Rate limit check (defaults: capacity=100, refill=10 tokens/sec)
+  ├─ Google API (REAL mode): GET https://mybusinessbusinessinformation.googleapis.com/v1/accounts/{accountId}/locations
+  ├─ Google API (MOCK mode): served from jsom/locations.json
   ├─ Error handling (transient vs permanent)
   └─ For each location:
      ├─ Create message:
@@ -282,7 +292,8 @@ For each account in message:
 ┌─────────────────────────────────────────────────────┐
 │ GOOGLE API CALL                                     │
 │                                                      │
-│ Endpoint: GET /accounts/{id}/locations/{id}/reviews│
+│ Endpoint (REAL mode): GET https://mybusiness.googleapis.com/v4/accounts/{accountId}/locations/{locationId}/reviews │
+│ Endpoint (MOCK mode): served from jsom/Reviews.json  │
 │ Pagination: All reviews for location                │
 │                                                      │
 │ Response:                                            │
@@ -419,13 +430,13 @@ For each account in message:
 - **Input**: Messages from fetch-accounts topic
 - **Processing**: Google API call to get accounts
 - **Output**: Messages to fetch-locations topic
-- **Rate Limiting**: 100 tokens/10s per worker
+- **Rate Limiting**: Token bucket per worker (defaults: capacity=100, refill=10 tokens/sec)
 
 ### LocationWorker
 - **Input**: Messages from fetch-locations topic
 - **Processing**: Google API call to get locations per account
 - **Output**: Messages to fetch-reviews topic
-- **Rate Limiting**: 100 tokens/10s per worker
+- **Rate Limiting**: Token bucket per worker (defaults: capacity=100, refill=10 tokens/sec)
 
 ### ReviewWorker
 - **Input**: Messages from fetch-reviews topic
@@ -655,7 +666,7 @@ The Review Fetcher implements a **production-ready event-driven pipeline** with:
 ✅ **Ingress Control**: Bounded buffer prevents overload
 ✅ **Asynchronous Processing**: Non-blocking I/O throughout
 ✅ **Fault Tolerance**: Exponential backoff retries with DLQ
-✅ **Rate Limiting**: Per-worker token bucket (100 tokens/10s)
+✅ **Rate Limiting**: Per-worker token bucket (defaults: capacity=100, refill=10 tokens/sec)
 ✅ **Deduplication**: Per-job-id in-memory set
 ✅ **Scalability**: Kafka topics enable horizontal scaling
 ✅ **Observability**: Structured logging, metrics tracking

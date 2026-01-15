@@ -96,11 +96,18 @@ class AccountWorker:
             
             # Publish fetch-locations event for each account
             for account in accounts:
+                account_id = account.get("account_id", account.get("id"))
                 success = await self.event_publisher.publish_fetch_locations_event(
                     job_id=job_id,
-                    account_id=account["id"],
+                    account_id=account_id,
                     account_name=account["display_name"],
-                    access_token=message.get("access_token")
+                    access_token=message.get("access_token"),
+                    google_account_name=account.get("google_account_name") or account.get("name"),
+                    account_display_name=account.get("account_display_name") or account.get("display_name"),
+                    client_id=account.get("client_id"),
+                    created_at=account.get("created_at"),
+                    updated_at=account.get("updated_at"),
+                    record_id=account.get("id"),
                 )
                 
                 if not success:

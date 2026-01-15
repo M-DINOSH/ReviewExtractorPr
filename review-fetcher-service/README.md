@@ -2,7 +2,7 @@
 
 **A high-performance, event-driven microservice for fetching Google Business Profile reviews with rate limiting, fault tolerance, and deduplication.**
 
-> **Status**: ✅ Production-Ready | **Mode**: Real Google API Integration | **Deployment**: Docker Compose
+> **Status**: ✅ Production-Ready | **Mode**: Mock data by default (jsom/) | **Real Google API**: Supported via `MOCK_GOOGLE_API=false` | **Deployment**: Docker Compose
 
 ---
 
@@ -26,7 +26,7 @@
 
 ### Prerequisites
 - Docker & Docker Compose
-- Google OAuth2 credentials with Business Profile API access
+- Google OAuth2 access token with Business Profile API access (only required when `MOCK_GOOGLE_API=false`)
 - Python 3.11+ (for local development)
 
 ### Start the Service
@@ -48,7 +48,7 @@ docker logs review-fetcher-service -f
 
 ```bash
 # Health check
-curl http://localhost:8084/
+curl http://localhost:8084/api/v1/health
 
 # Submit a review fetch job
 curl -X POST http://localhost:8084/api/v1/review-fetch \
@@ -64,6 +64,13 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
   "message": "Job enqueued for processing"
 }
 ```
+
+### See the Output (Web + Kafka)
+
+- Web demo page (direct nested join + Kafka nested stream): http://localhost:8084/demo
+- Direct nested output (no Kafka needed): `POST /api/v1/demo/nested`
+- Kafka aggregated nested stream (SSE): `GET /api/v1/demo/stream/nested?job_id=...`
+- CLI demo (triggers job + prints nested JSON): `python kafka_stream_demo.py`
 
 ### Interactive Documentation
 - **Swagger UI**: http://localhost:8084/docs
@@ -102,7 +109,7 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
     │ │ AccountWorker        │  │
     │ │ ┌──────────────────┐ │  │
     │ │ │Rate Limiter      │ │  │ [Token Bucket]
-    │ │ │100 tokens/10s    │ │  │ [300 QPM max]
+    │ │ │cap=100 @ 10/s    │ │  │ [Configurable]
     │ │ └──────────────────┘ │  │
     │ └──────────────────────┘  │
     │                            │
@@ -121,7 +128,7 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
     │ │ LocationWorker       │  │
     │ │ ┌──────────────────┐ │  │
     │ │ │Rate Limiter      │ │  │ [Token Bucket]
-    │ │ │100 tokens/10s    │ │  │ [Per-worker isolation]
+    │ │ │cap=100 @ 10/s    │ │  │ [Per-worker]
     │ │ └──────────────────┘ │  │
     │ └──────────────────────┘  │
     │                            │
@@ -140,7 +147,7 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
     │ │ ReviewWorker         │  │
     │ │ ┌──────────────────┐ │  │
     │ │ │Rate Limiter      │ │  │ [Token Bucket]
-    │ │ │100 tokens/10s    │ │  │ [Per-worker isolation]
+    │ │ │cap=100 @ 10/s    │ │  │ [Per-worker]
     │ │ └──────────────────┘ │  │
     │ │ ┌──────────────────┐ │  │
     │ │ │Deduplication    │ │  │ [In-memory set]
@@ -298,7 +305,7 @@ def enqueue(job):
 
 ### 2. Token Bucket Rate Limiter
 
-**Purpose**: Rate limiting per worker (300 QPM Google quota)
+**Purpose**: Rate limiting per worker (defaults: capacity=100, refill_rate=10 tokens/sec; configurable)
 
 **Data Structure**: 
 - `capacity: float` (max tokens)
@@ -955,9 +962,10 @@ class ReviewWorker(KafkaConsumerBase):
    │  │  └─ If YES:
    │  │     └─ Deduct token, proceed
    │  │
-   │  ├─ GOOGLE API CALL (with tenacity retry)
-   │  │  ├─ httpx.AsyncClient.get("https://...")
-   │  │  ├─ Endpoint: /google_api/v2/accounts
+    │  ├─ GOOGLE API CALL (with tenacity retry)
+    │  │  ├─ httpx.AsyncClient.get("https://...")
+    │  │  ├─ Endpoint (REAL mode): https://mybusinessbusinessinformation.googleapis.com/v1/accounts
+    │  │  ├─ Endpoint (MOCK mode): served from jsom/accounts.json
    │  │  ├─ Header: Authorization: Bearer {token}
    │  │  ├─ Retry decorator: 3 attempts with backoff
    │  │  └─ Response: [{"accountId": "123", ...}, ...]
@@ -989,7 +997,8 @@ class ReviewWorker(KafkaConsumerBase):
    ├─ Topic: fetch-locations
    ├─ For each account:
    │  ├─ Rate limit
-   │  ├─ Call: /google_api/v2/accounts/{id}/locations
+    │  ├─ Call (REAL mode): https://mybusinessbusinessinformation.googleapis.com/v1/accounts/{accountId}/locations
+    │  ├─ Call (MOCK mode): served from jsom/locations.json
    │  ├─ For each location:
    │  │  ├─ Publish to fetch-reviews topic
    │  │  └─ Message includes: job_id, account_id, location_id
@@ -1000,7 +1009,8 @@ class ReviewWorker(KafkaConsumerBase):
    ├─ Topic: fetch-reviews
    ├─ For each location:
    │  ├─ Rate limit
-   │  ├─ Call: /google_api/v2/accounts/{id}/locations/{id}/reviews
+    │  ├─ Call (REAL mode): https://mybusiness.googleapis.com/v4/accounts/{accountId}/locations/{locationId}/reviews
+    │  ├─ Call (MOCK mode): served from jsom/Reviews.json
    │  ├─ For each review:
    │  │  ├─ DEDUPLICATION CHECK
    │  │  │  ├─ Build key: f"{account}_{location}_{review_id}"
@@ -1059,16 +1069,18 @@ class ReviewWorker(KafkaConsumerBase):
 ### Health Check
 
 ```http
-GET /
+GET /api/v1/health
 ```
 
 Response:
 ```json
 {
-  "service": "review-fetcher-service",
-  "version": "1.0.0",
-  "status": "running",
-  "docs": "/docs"
+    "status": "healthy",
+    "service": "review-fetcher-service",
+    "version": "1.0.0",
+    "kafka_connected": true,
+    "memory_used_percent": 12.3,
+    "timestamp": "2024-01-07T10:30:00Z"
 }
 ```
 
@@ -1139,9 +1151,10 @@ LOG_LEVEL=INFO
 ENVIRONMENT=production
 
 # Feature Flags
-MOCK_GOOGLE_API=false  # Set to "false" for real Google API
+MOCK_GOOGLE_API=true   # "true" = mock data from jsom/ (default). Set to "false" for real Google API
 
 # Kafka Configuration
+# Inside Docker: kafka:9092 | From host: localhost:9094
 KAFKA_BOOTSTRAP_SERVERS=kafka:9092
 KAFKA_CONSUMER_GROUP=review-fetcher-service
 
@@ -1181,7 +1194,7 @@ class RetryConfig(BaseSettings):
     backoff_multiplier: float = 2.0
 
 class KafkaConfig(BaseSettings):
-    bootstrap_servers: str = "localhost:9092"
+    bootstrap_servers: str = "localhost:9094"
     consumer_group: str = "review-fetcher-service"
     
     def get_bootstrap_servers_list(self) -> list[str]:
@@ -1195,7 +1208,8 @@ class DequeConfig(BaseSettings):
 class Settings(BaseSettings):
     log_level: str = "INFO"
     environment: str = "development"
-    mock_google_api: bool = False
+    # Controlled by env var MOCK_GOOGLE_API (defaults to true)
+    mock_google_api: bool = True
     
     kafka: KafkaConfig = KafkaConfig()
     rate_limit: RateLimitConfig = RateLimitConfig()

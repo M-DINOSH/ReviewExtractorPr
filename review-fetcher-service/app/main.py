@@ -23,6 +23,7 @@ from app.retry import RetryScheduler, ExponentialBackoffPolicy
 from app.kafka_consumers.account_worker import AccountWorker
 from app.kafka_consumers.location_worker import LocationWorker
 from app.kafka_consumers.review_worker import ReviewWorker
+from app.demo_web import router as demo_router
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +323,7 @@ def create_app() -> FastAPI:
     
     # Include API routes
     app.include_router(api_router)
+    app.include_router(demo_router)
     
     # Root endpoint
     @app.get("/", include_in_schema=False)
