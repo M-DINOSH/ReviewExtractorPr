@@ -4,20 +4,16 @@ This document explains the internal flow of the **review-fetcher-service**, how 
 
 ## 1) High-level architecture
 
-There are two main “paths”:
+There is one core path:
 
 1. **Production pipeline (Kafka workers)**
-   - Frontend sends an `access_token`.
-   - The service creates a `job_id` and pushes work into Kafka.
-   - Three Kafka workers process the job:
-     - AccountWorker → LocationWorker → ReviewWorker
-   - Output reviews are published to `reviews-raw`.
+  - Frontend sends an `access_token`.
+  - The service creates a `job_id` and pushes work into Kafka.
+  - Three Kafka workers process the job:
+    - AccountWorker → LocationWorker → ReviewWorker
+  - Output reviews are published to `reviews-raw`.
 
-2. **Demo (direct join) path**
-   - Used only for easy “instant output” demos.
-   - Reads mock JSON files directly and produces the nested output without Kafka.
-
-Both paths output the same nested structure (Account → Locations → Reviews), but they differ in whether they run through Kafka.
+The demo endpoints are just *different views/aggregations* over this same Kafka pipeline (one-shot JSON vs SSE stream).
 
 ## 2) Key configuration flags (mock vs real)
 
@@ -139,30 +135,33 @@ The demo code lives in `app/demo_web.py`.
 
 This is just an HTML page that calls the endpoints below.
 
-### B) Direct nested demo (NOT Kafka)
+### B) One-shot nested demo (Kafka pipeline)
 
 - `POST /api/v1/demo/nested`
 
 What it does:
-- Reads `jsom/` files directly via `mock_data_service`.
-- Picks a stable “random” account based on `sha256(access_token)`.
-- Joins:
-  - locations where `google_account_id == account.account_id`
-  - reviews where `location_id == location.location_id`
+- Creates a job via the same API service used by production.
+- Aggregates Kafka topics (`fetch-locations`, `fetch-reviews`, `reviews-raw`) into a single nested payload.
 
 Important:
-- This endpoint is **separate from the workers**.
-- It does **not** call Google APIs.
-- It does **not** use Kafka.
-- It is always “mock-only” by design (fast demo output).
+- This endpoint uses the **same Kafka + worker pipeline** as production.
+- Mock vs real behavior is controlled only by `MOCK_GOOGLE_API`:
+  - `true` → reads from `jsom/`
+  - `false` → calls real Google APIs
 
 ### C) Kafka nested stream demo (SSE) (USES Kafka pipeline)
 
-- `GET /api/v1/demo/stream/nested?job_id=...`
+- Create a new job and stream it: `GET /api/v1/demo/stream/nested?access_token=...`
+- Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 
 What it does:
 - Consumes Kafka topics (`fetch-locations`, `fetch-reviews`, `reviews-raw`) and aggregates them into a single nested payload.
 - Streams progressive updates as SSE events.
+
+In `access_token=...` mode, the endpoint emits:
+- `event: job` with the newly created `job_id`, then
+- `event: nested` updates, then
+- `event: done`.
 
 Important:
 - This endpoint reflects the **real production pipeline output**.

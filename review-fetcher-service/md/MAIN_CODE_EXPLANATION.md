@@ -127,7 +127,7 @@ await producer.connect()
 ```
 - **What**: Connection to Apache Kafka message broker
 - **Why**: Sends event messages to workers in other services
-- **Mock mode**: If `mock_google_api=true`, uses fake Kafka for testing
+- **In-memory Kafka mode**: If `MOCK_KAFKA=true`, uses an in-memory Kafka implementation for testing (no broker required)
 
 **3. Event Publisher**
 ```python

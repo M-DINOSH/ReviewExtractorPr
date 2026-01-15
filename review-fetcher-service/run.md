@@ -112,9 +112,9 @@ API_BASE_URL=http://localhost:8084 KAFKA_BOOTSTRAP=localhost:9094 python3 kafka_
 
 ---
 
-## 5) (Optional) Get a nested output directly (no Kafka)
+## 5) (Optional) One-shot nested output (Kafka pipeline)
 
-There is also a **direct join** endpoint (loads from `jsom/*.json` and joins in-memory):
+There is also a one-shot endpoint that runs the **same Kafka + worker pipeline** and returns a final nested payload (account → locations → reviews):
 
 ```bash
 curl -s http://localhost:8084/api/v1/demo/nested \
@@ -125,7 +125,7 @@ curl -s http://localhost:8084/api/v1/demo/nested \
 Notes:
 
 - The token is only used to pick a deterministic “random” account.
-- This path does **not** consume Kafka.
+- Under the hood this endpoint enqueues a job and aggregates Kafka topics for a short time.
 
 ---
 
@@ -150,7 +150,9 @@ MOCK_GOOGLE_API=false docker compose up -d --build
 
 ### B) Provide a real Google OAuth token
 
-In real mode, `POST /api/v1/review-fetch` expects a real Google OAuth **access token** (the code checks it looks like a Google token, e.g. starts with `ya29`).
+In real mode, `POST /api/v1/review-fetch` expects a real Google OAuth **access token**.
+
+Token validity is determined by actual Google API responses (e.g. accounts fetch succeeds). Mock mode accepts any non-empty token.
 
 Example:
 
@@ -167,9 +169,15 @@ Use the Kafka-backed nested stream (same as mock mode):
 - Web UI: `http://localhost:8084/demo`
 - Nested SSE: `/api/v1/demo/stream/nested?job_id=...`
 
+You can also start the nested SSE stream by providing a token (it will create a job after seeking Kafka to the end):
+
+```bash
+curl -s -N "http://localhost:8084/api/v1/demo/stream/nested?access_token=YOUR_TOKEN&max_wait_sec=30" | head -n 80
+```
+
 Important note:
 
-- The **direct join** endpoint `/api/v1/demo/nested` is mock-only (it joins `jsom/*.json`). For real Google data, you use `/api/v1/review-fetch` + Kafka stream.
+- `/api/v1/demo/nested` and `/api/v1/demo/stream/nested` both reflect the production Kafka pipeline; mock vs real is only the data source used inside `GoogleAPIClient`.
 
 ### D) Google API access requirements
 

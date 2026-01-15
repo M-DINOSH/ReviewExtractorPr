@@ -67,9 +67,11 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
 
 ### See the Output (Web + Kafka)
 
-- Web demo page (direct nested join + Kafka nested stream): http://localhost:8084/demo
-- Direct nested output (no Kafka needed): `POST /api/v1/demo/nested`
-- Kafka aggregated nested stream (SSE): `GET /api/v1/demo/stream/nested?job_id=...`
+- Web demo page (Kafka pipeline + nested aggregation): http://localhost:8084/demo
+- One-shot nested output (runs Kafka pipeline and returns final JSON): `POST /api/v1/demo/nested`
+- Kafka aggregated nested stream (SSE):
+    - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
+    - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 - CLI demo (triggers job + prints nested JSON): `python kafka_stream_demo.py`
 
 ### Interactive Documentation

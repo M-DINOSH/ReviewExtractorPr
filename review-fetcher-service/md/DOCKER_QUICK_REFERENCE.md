@@ -48,10 +48,14 @@ docker compose up --build
 docker compose --profile dev up --build
 ```
 
-### Start Lightweight (No Kafka)
+### Start Lightweight (No External Kafka)
 ```bash
 docker compose --profile dev-lite up --build
 ```
+
+Notes:
+- This profile uses the service's in-memory Kafka implementation (`MOCK_KAFKA=true`).
+- Kafka UI and broker ports will not be available in this mode.
 
 ### View Logs
 ```bash
@@ -92,6 +96,7 @@ docker compose ps --services              # List service names
 ```env
 # Review Fetcher
 MOCK_GOOGLE_API=true/false                # Use fake or real API
+MOCK_KAFKA=true/false                     # true=in-memory Kafka (no broker), false=real Kafka
 KAFKA_BOOTSTRAP_SERVERS=kafka:9092        # Always "kafka", not localhost
 LOG_LEVEL=INFO/DEBUG/WARNING/ERROR        # Logging verbosity
 

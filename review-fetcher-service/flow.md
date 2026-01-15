@@ -31,8 +31,10 @@
 ### Demo Output (Nested)
 
 - **Web UI**: `GET /demo`
-- **Direct nested output (no Kafka)**: `POST /api/v1/demo/nested`
-- **Kafka aggregated nested stream (SSE)**: `GET /api/v1/demo/stream/nested?job_id=...`
+- **One-shot nested output (runs Kafka pipeline)**: `POST /api/v1/demo/nested`
+- **Kafka aggregated nested stream (SSE)**:
+  - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
+  - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 
 The nested output format is: account → all locations for that account → all reviews for each location.
 

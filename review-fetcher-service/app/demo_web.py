@@ -11,10 +11,12 @@ import json
 import time
 from typing import Any, AsyncIterator, Optional
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from app.config import get_settings
+from app.api import APIService, get_api_service
+from app.models import ReviewFetchRequest
 from app.services.mock_data import mock_data_service
 
 
@@ -61,11 +63,11 @@ async def demo_page() -> HTMLResponse:
   <div class=\"muted\">You asked for a final nested output: account → all locations for that account → all reviews for each location.</div>
 
   <div class=\"card\" style=\"margin-top: 12px;\">
-    <h2>Final nested output (direct join)</h2>
-    <div class=\"muted\">Picks a stable “random” account based on the token, then joins locations/reviews by IDs.</div>
+        <h2>Final nested output (Kafka pipeline)</h2>
+        <div class=\"muted\">Runs the same pipeline as production (API → Kafka → workers). Mock vs real is controlled by <code>MOCK_GOOGLE_API</code>.</div>
     <div class=\"row\">
       <label for=\"token\"><b>Access token</b></label>
-      <input id=\"token\" placeholder=\"paste any token (used only to pick a 'random' account deterministically)\" />
+            <input id=\"token\" placeholder=\"paste token (mock mode accepts any non-empty token)\" />
       <button id=\"btnNested\">Generate</button>
     </div>
     <pre><code id=\"nested\">(click Generate)</code></pre>
@@ -150,24 +152,16 @@ async def demo_page() -> HTMLResponse:
       latestNested = null;
       render();
 
-      const resp = await fetch('/api/v1/review-fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: 'test_token_123456789' })
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        jobIdEl.textContent = `error (${resp.status}): ${text}`;
-        startBtn.disabled = false;
-        return;
-      }
-
-      const data = await resp.json();
-      const jobId = data.job_id || '(unknown)';
-      jobIdEl.textContent = jobId;
-
-      esNested = new EventSource(`/api/v1/demo/stream/nested?job_id=${encodeURIComponent(jobId)}&max_wait_sec=60&max_locations=200&max_reviews_per_location=200`);
+            // Start streaming first; the server will create a new job after seeking Kafka to the end.
+            esNested = new EventSource(`/api/v1/demo/stream/nested?access_token=${encodeURIComponent('test_token_123456789')}&max_wait_sec=60&max_locations=200&max_reviews_per_location=200`);
+            esNested.addEventListener('job', (ev) => {
+                try {
+                    const info = JSON.parse(ev.data);
+                    jobIdEl.textContent = info.job_id || '(unknown)';
+                } catch (e) {
+                    console.error('bad job payload', e, ev.data);
+                }
+            });
       esNested.addEventListener('nested', (ev) => {
         try {
           latestNested = JSON.parse(ev.data);
@@ -234,64 +228,236 @@ async def demo_reviews(
 @router.post("/api/v1/demo/nested")
 async def demo_nested_output(
   payload: dict[str, Any] = Body(...),
+  api_service: APIService = Depends(get_api_service),
 ) -> dict[str, Any]:
-  """Return nested output: account → locations → reviews.
+    """Return nested output: account → locations → reviews (Kafka pipeline).
 
-  Selection rule:
-  - Pick one “random” account based on access_token (deterministic hash)
+    This endpoint runs the SAME pipeline as production:
+    - Enqueue job via the same API service
+    - Workers publish to Kafka topics
+    - This endpoint consumes Kafka topics and aggregates them by job_id
 
-  Join rules:
-  - locations.google_account_id == account.account_id
-  - reviews.location_id == locations.location_id
-  """
+    Mock vs real behavior:
+    - Controlled by `MOCK_GOOGLE_API`
+    - Mock mode reads from `jsom/`
+    - Real mode calls Google APIs
+    """
 
-  access_token = str(payload.get("access_token") or "")
-  max_locations = int(payload.get("max_locations", 500))
-  max_reviews_per_location = int(payload.get("max_reviews_per_location", 500))
+    access_token = str(payload.get("access_token") or "").strip()
+    if not access_token:
+        raise HTTPException(status_code=400, detail="access_token is required")
 
-  accounts = list(mock_data_service.accounts_data)
-  locations = list(mock_data_service.locations_data)
-  reviews = list(mock_data_service.reviews_data)
+    max_wait_sec = max(5, int(payload.get("max_wait_sec", 30)))
+    max_locations = max(0, int(payload.get("max_locations", 500)))
+    max_reviews_per_location = max(0, int(payload.get("max_reviews_per_location", 500)))
 
-  account = _pick_account_by_token(access_token, accounts)
-  account_id = int(account.get("account_id", account.get("id")))
+    # IMPORTANT: this endpoint must NOT start consuming from "earliest".
+    # These topics can be large; starting from earliest would require scanning
+    # historical traffic before reaching this job's events.
+    # We instead seek to the end first, then trigger a new job.
+    from aiokafka import AIOKafkaConsumer
 
-  account_locations = [
-    l for l in locations if int(l.get("google_account_id", -1)) == account_id
-  ][:max_locations]
+    settings = get_settings()
+    bootstrap_servers = settings.kafka.get_bootstrap_servers_list()
 
-  reviews_by_location_id: dict[int, list[dict[str, Any]]] = {}
-  for review in reviews:
+    def _as_int_id(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            s = str(value)
+            if "/" in s:
+                s = s.split("/")[-1]
+            return int(s)
+        except Exception:
+            return None
+
+    consumer = AIOKafkaConsumer(
+        "fetch-locations",
+        "fetch-reviews",
+        "reviews-raw",
+        bootstrap_servers=bootstrap_servers,
+        auto_offset_reset="latest",
+        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+        group_id=f"demo_web_nested_one_shot_{int(time.time())}",
+        consumer_timeout_ms=1000,
+    )
+
+    accounts_by_id: dict[int, dict[str, Any]] = {}
+    pending_locations_by_account: dict[int, dict[int, dict[str, Any]]] = {}
+    locations_by_id: dict[int, dict[str, Any]] = {}
+    reviews_by_location_id: dict[int, list[dict[str, Any]]] = {}
+
+    selected_account: Optional[dict[str, Any]] = None
+    selected_account_id: Optional[int] = None
+    job_id: Optional[str] = None
+    start = time.time()
+    deadline = start + max_wait_sec
+
+    def _maybe_select_account() -> None:
+        nonlocal selected_account, selected_account_id
+        if selected_account_id is not None:
+            return
+        if not accounts_by_id:
+            return
+        candidates = [accounts_by_id[k] for k in sorted(accounts_by_id.keys())]
+        selected_account = _pick_account_by_token(access_token, candidates)
+        selected_account_id = _as_int_id(selected_account.get("account_id") or selected_account.get("id"))
+        if selected_account_id is None:
+            selected_account = None
+            return
+        locations_by_id.update(pending_locations_by_account.get(selected_account_id, {}))
+
     try:
-      loc_id = int(review.get("location_id", -1))
-    except Exception:
-      continue
-    reviews_by_location_id.setdefault(loc_id, []).append(review)
+        await consumer.start()
+        # Force partition assignment before seeking.
+        await consumer.getmany(timeout_ms=0)
+        await consumer.seek_to_end()
 
-  nested_locations: list[dict[str, Any]] = []
-  for location in account_locations:
-    loc_id = int(location.get("location_id", location.get("id")))
-    loc_reviews = reviews_by_location_id.get(loc_id, [])[:max_reviews_per_location]
-    location_with_reviews = dict(location)
-    location_with_reviews["reviews"] = loc_reviews
-    nested_locations.append(location_with_reviews)
+        # Create a new job via the same codepath as production.
+        job = await api_service.create_fetch_job(ReviewFetchRequest(access_token=access_token))
+        job_id = job.job_id
 
-  return {
-    "account": account,
-    "locations": nested_locations,
-    "joins_ok": {
-      "account.account_id == location.google_account_id": all(
-        int(l.get("google_account_id", -999999)) == account_id
-        for l in account_locations
-      ),
-      "location.location_id == review.location_id": all(
-        int(r.get("location_id", -999999))
-        == int(l.get("location_id", -999999))
-        for l in nested_locations
-        for r in (l.get("reviews") or [])
-      ),
-    },
-  }
+        while time.time() < deadline:
+            try:
+                msg = await consumer.getone()
+            except Exception:
+                await asyncio.sleep(0.05)
+                _maybe_select_account()
+                continue
+
+            payload_msg = msg.value or {}
+            if not job_id or str(payload_msg.get("job_id")) != str(job_id):
+                continue
+
+            if msg.topic == "fetch-locations":
+                acc_id = _as_int_id(payload_msg.get("account_id"))
+                if acc_id is None:
+                    continue
+                accounts_by_id.setdefault(
+                    acc_id,
+                    {
+                        "id": payload_msg.get("id", acc_id),
+                        "account_id": payload_msg.get("account_id", acc_id),
+                        "client_id": payload_msg.get("client_id", 1),
+                        "google_account_name": payload_msg.get("google_account_name"),
+                        "account_display_name": payload_msg.get("account_display_name") or payload_msg.get("account_name"),
+                        "created_at": payload_msg.get("created_at") or payload_msg.get("timestamp"),
+                        "updated_at": payload_msg.get("updated_at") or payload_msg.get("timestamp"),
+                    },
+                )
+                if (time.time() - start) >= 1.0 or len(accounts_by_id) >= 10:
+                    _maybe_select_account()
+
+            elif msg.topic == "fetch-reviews":
+                gaid = _as_int_id(payload_msg.get("google_account_id"))
+                loc_id = _as_int_id(payload_msg.get("location_id") or payload_msg.get("id"))
+                if gaid is None or loc_id is None:
+                    continue
+
+                loc_obj = {
+                    "id": payload_msg.get("id", loc_id),
+                    "location_id": payload_msg.get("location_id", loc_id),
+                    "client_id": payload_msg.get("client_id", 1),
+                    "google_account_id": payload_msg.get("google_account_id"),
+                    "location_name": payload_msg.get("location_name"),
+                    "location_title": payload_msg.get("location_title") or payload_msg.get("name"),
+                    "address": payload_msg.get("address"),
+                    "phone": payload_msg.get("phone"),
+                    "category": payload_msg.get("category"),
+                    "created_at": payload_msg.get("created_at") or payload_msg.get("timestamp"),
+                    "updated_at": payload_msg.get("updated_at") or payload_msg.get("timestamp"),
+                }
+
+                pending_locations_by_account.setdefault(gaid, {})
+                pending_locations_by_account[gaid].setdefault(loc_id, loc_obj)
+
+                _maybe_select_account()
+                if selected_account_id is not None and gaid == int(selected_account_id):
+                    if len(locations_by_id) < max_locations:
+                        locations_by_id.setdefault(loc_id, loc_obj)
+
+            elif msg.topic == "reviews-raw":
+                loc_id = _as_int_id(payload_msg.get("location_id"))
+                if loc_id is None:
+                    continue
+
+                review_account_id = _as_int_id(payload_msg.get("account_id"))
+                if selected_account_id is not None and review_account_id is not None:
+                    if review_account_id != int(selected_account_id):
+                        continue
+
+                reviews_by_location_id.setdefault(loc_id, [])
+                if len(reviews_by_location_id[loc_id]) >= max_reviews_per_location:
+                    continue
+                reviews_by_location_id[loc_id].append(
+                    {
+                        "id": payload_msg.get("id"),
+                        "client_id": payload_msg.get("client_id"),
+                        "account_id": payload_msg.get("account_id"),
+                        "location_id": payload_msg.get("location_id"),
+                        "google_review_id": payload_msg.get("google_review_id"),
+                        "rating": payload_msg.get("rating"),
+                        "comment": payload_msg.get("comment") or payload_msg.get("text"),
+                        "reviewer_name": payload_msg.get("reviewer_name"),
+                        "reviewer_photo_url": payload_msg.get("reviewer_photo_url"),
+                        "review_created_time": payload_msg.get("review_created_time"),
+                        "reply_text": payload_msg.get("reply_text"),
+                        "reply_time": payload_msg.get("reply_time"),
+                        "created_at": payload_msg.get("created_at") or payload_msg.get("timestamp"),
+                        "updated_at": payload_msg.get("updated_at") or payload_msg.get("timestamp"),
+                    }
+                )
+
+        _maybe_select_account()
+
+    finally:
+        await consumer.stop()
+
+    # Build final nested output
+    if selected_account_id is None and accounts_by_id:
+        selected_account_id = sorted(accounts_by_id.keys())[0]
+        selected_account = accounts_by_id[selected_account_id]
+        locations_by_id.update(pending_locations_by_account.get(selected_account_id, {}))
+
+    locations_out: list[dict[str, Any]] = []
+    for loc_id in sorted(locations_by_id.keys()):
+        loc = dict(locations_by_id[loc_id])
+        loc_reviews = list(reviews_by_location_id.get(loc_id, []))
+        if selected_account_id is not None:
+            loc_reviews = [r for r in loc_reviews if _as_int_id(r.get("account_id")) == int(selected_account_id)]
+        loc["reviews"] = loc_reviews[:max_reviews_per_location]
+        locations_out.append(loc)
+
+    joins_ok_account = True
+    if selected_account_id is not None:
+        for loc in locations_out:
+            if _as_int_id(loc.get("google_account_id")) != int(selected_account_id):
+                joins_ok_account = False
+                break
+
+    joins_ok_reviews = True
+    for loc in locations_out:
+        lid = _as_int_id(loc.get("location_id"))
+        if lid is None:
+            joins_ok_reviews = False
+            break
+        for rev in (loc.get("reviews") or []):
+            if _as_int_id(rev.get("location_id")) != lid:
+                joins_ok_reviews = False
+                break
+        if not joins_ok_reviews:
+            break
+
+    return {
+        "job_id": job_id,
+        "account": selected_account,
+        "locations": locations_out,
+        "stats": {"locations": len(locations_out), "reviews": sum(len(l.get("reviews") or []) for l in locations_out)},
+        "joins_ok": {
+            "account.account_id == location.google_account_id": joins_ok_account,
+            "location.location_id == review.location_id": joins_ok_reviews,
+        },
+    }
 
 
 @router.get("/api/v1/demo/stream/accounts")
@@ -450,11 +616,13 @@ async def demo_stream_locations(
 
 @router.get("/api/v1/demo/stream/nested")
 async def demo_stream_nested(
-    job_id: str = Query(..., min_length=1),
+    job_id: Optional[str] = Query(None, min_length=1),
+    access_token: Optional[str] = Query(None, min_length=1),
     max_wait_sec: int = Query(60, ge=5, le=600),
     max_locations: int = Query(500, ge=1, le=5000),
     max_reviews_per_location: int = Query(500, ge=1, le=5000),
     emit_interval_ms: int = Query(250, ge=50, le=2000),
+    api_service: APIService = Depends(get_api_service),
 ) -> StreamingResponse:
     """Kafka-backed nested stream: account → locations → reviews."""
 
@@ -464,12 +632,17 @@ async def demo_stream_nested(
     async def event_stream() -> AsyncIterator[bytes]:
         from aiokafka import AIOKafkaConsumer
 
+        token = (access_token or "").strip()
+        create_job_mode = job_id is None
+        if create_job_mode and not token:
+            raise HTTPException(status_code=400, detail="Provide either job_id or access_token")
+
         consumer = AIOKafkaConsumer(
             "fetch-locations",
             "fetch-reviews",
             "reviews-raw",
             bootstrap_servers=bootstrap_servers,
-            auto_offset_reset="earliest",
+            auto_offset_reset="latest" if create_job_mode else "earliest",
             value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             group_id=f"demo_web_nested_{int(time.time())}",
             consumer_timeout_ms=1000,
@@ -477,6 +650,8 @@ async def demo_stream_nested(
 
         account_obj: Optional[dict[str, Any]] = None
         account_id: Optional[int] = None
+        accounts_by_id: dict[int, dict[str, Any]] = {}
+        pending_locations_by_account: dict[int, dict[int, dict[str, Any]]] = {}
         locations_by_id: dict[int, dict[str, Any]] = {}
         reviews_by_location_id: dict[int, list[dict[str, Any]]] = {}
 
@@ -554,6 +729,21 @@ async def demo_stream_nested(
         try:
             await consumer.start()
 
+            if create_job_mode:
+                # Ensure we only stream data for a new job created after we attach.
+                await consumer.getmany(timeout_ms=0)
+                await consumer.seek_to_end()
+                job = await api_service.create_fetch_job(
+                    ReviewFetchRequest(access_token=token)
+                )
+                resolved_job_id = job.job_id
+                yield (
+                    f"event: job\n"
+                    f"data: {json.dumps({'job_id': resolved_job_id})}\n\n"
+                ).encode("utf-8")
+            else:
+                resolved_job_id = str(job_id)
+
             while time.time() < deadline:
                 try:
                     msg = await consumer.getone()
@@ -571,48 +761,53 @@ async def demo_stream_nested(
                     continue
 
                 payload = msg.value or {}
-                if str(payload.get("job_id")) != str(job_id):
+                if str(payload.get("job_id")) != str(resolved_job_id):
                     continue
 
                 if msg.topic == "fetch-locations":
                     acc_id = payload.get("account_id")
                     if acc_id is None:
                         continue
-                    if account_obj is None:
-                        try:
-                            account_id = int(acc_id)
-                        except Exception:
-                            continue
-                        account_obj = {
-                            "id": payload.get("id", account_id),
-                            "account_id": payload.get("account_id", account_id),
+                    acc_id_int = _as_int_id(acc_id)
+                    if acc_id_int is None:
+                        continue
+
+                    accounts_by_id.setdefault(
+                        acc_id_int,
+                        {
+                            "id": payload.get("id", acc_id_int),
+                            "account_id": payload.get("account_id", acc_id_int),
                             "client_id": payload.get("client_id", 1),
                             "google_account_name": payload.get("google_account_name"),
                             "account_display_name": payload.get("account_display_name")
                             or payload.get("account_name"),
                             "created_at": payload.get("created_at") or payload.get("timestamp"),
                             "updated_at": payload.get("updated_at") or payload.get("timestamp"),
-                        }
+                        },
+                    )
+
+                    if account_obj is None:
+                        account_id = acc_id_int
+                        account_obj = accounts_by_id[acc_id_int]
+
+                        # If locations arrived before accounts, merge them now.
+                        for loc_id, loc_obj in pending_locations_by_account.get(acc_id_int, {}).items():
+                            if len(locations_by_id) >= max_locations:
+                                break
+                            locations_by_id.setdefault(loc_id, loc_obj)
+
                         dirty = True
 
                 elif msg.topic == "fetch-reviews":
-                    if account_id is None:
-                        continue
-                    try:
-                        gaid = int(payload.get("google_account_id", -1))
-                    except Exception:
-                        continue
-                    if gaid != int(account_id):
-                        continue
-                    if len(locations_by_id) >= max_locations:
+                    gaid = _as_int_id(payload.get("google_account_id"))
+                    if gaid is None:
                         continue
                     try:
                         loc_id = int(payload.get("location_id", payload.get("id")))
                     except Exception:
                         continue
-                    if loc_id in locations_by_id:
-                        continue
-                    locations_by_id[loc_id] = {
+
+                    loc_obj = {
                         "id": payload.get("id", loc_id),
                         "location_id": payload.get("location_id", loc_id),
                         "client_id": payload.get("client_id", 1),
@@ -625,7 +820,15 @@ async def demo_stream_nested(
                         "created_at": payload.get("created_at") or payload.get("timestamp"),
                         "updated_at": payload.get("updated_at") or payload.get("timestamp"),
                     }
-                    dirty = True
+
+                    pending_locations_by_account.setdefault(gaid, {})
+                    pending_locations_by_account[gaid].setdefault(loc_id, loc_obj)
+
+                    # If we already know which account to display, project only those locations.
+                    if account_id is not None and gaid == int(account_id):
+                        if len(locations_by_id) < max_locations:
+                            locations_by_id.setdefault(loc_id, loc_obj)
+                            dirty = True
 
                 elif msg.topic == "reviews-raw":
                     loc_id = _as_int_id(payload.get("location_id"))

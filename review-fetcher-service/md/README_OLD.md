@@ -1,5 +1,8 @@
 # Review Fetcher Microservice
 
+> NOTE: This is a historical/legacy document. Some details may be outdated.
+> For current usage, see `review-fetcher-service/README.md`, `review-fetcher-service/run.md`, and `review-fetcher-service/flow.md`.
+
 Production-ready microservice for fetching reviews from Google Business Profile API using event-driven Kafka architecture.
 
 ## What This Service Does

@@ -115,13 +115,17 @@ kafka-ui         | Listening on port 8080
 review-fetcher   | Uvicorn running on http://0.0.0.0:8000
 ```
 
-### Lightweight (No Kafka/Zookeeper)
+### Lightweight (No External Kafka/Zookeeper)
 ```bash
 # Only review-fetcher with mock Kafka
 docker compose --profile dev-lite up --build
 ```
 
 Useful for testing without full infrastructure.
+
+Notes:
+- This mode uses the service's in-memory Kafka implementation (`MOCK_KAFKA=true`).
+- Kafka UI won't be available, and there is no broker to inspect.
 
 ### Production
 ```bash

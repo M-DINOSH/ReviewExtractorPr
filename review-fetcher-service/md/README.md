@@ -1,4 +1,14 @@
+# Notes (read this first)
 
+This file mixes **conceptual background** (how Google models locations/reviews) with some **historical implementation notes**.
+
+For the up-to-date, runnable docs for this repo, use:
+
+- `review-fetcher-service/README.md`
+- `review-fetcher-service/run.md`
+- `review-fetcher-service/flow.md`
+
+---
 
 for each individual services refer flow.md and run.md
 
@@ -213,14 +223,15 @@ Business → Reviews
 The microservice now implements a **complete end-to-end automatic flow** that triggers with a single API call:
 
 ```
-POST /sync → Automatic Pipeline Execution
+POST /api/v1/review-fetch → Automatic Pipeline Execution
 ```
 
 ### 🔄 **Automatic Step-by-Step Flow**
 
 1. **Token Validation** ✅
-   - Validates access token format (must start with `ya29.`)
-   - Requires valid Google OAuth tokens for production use
+   - Requires a non-empty `access_token`
+   - In real mode (`MOCK_GOOGLE_API=false`), validity is determined by actual Google API responses
+   - In mock mode (`MOCK_GOOGLE_API=true`), any non-empty token is accepted
 
 2. **Accounts Fetch** ✅
    - Fetches all Google Business accounts for the authenticated user
@@ -251,7 +262,7 @@ POST /sync → Automatic Pipeline Execution
 
 ```bash
 # Trigger automatic sync flow
-POST /sync
+POST /api/v1/review-fetch
 {
   "access_token": "ya29... or mock_token_123",
   "client_id": "your_client_id"
