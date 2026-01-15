@@ -201,7 +201,9 @@ async def demo_page() -> HTMLResponse:
                         }
 
                         // 2) Start SSE stream; server will attach, then create a new job and emit event: job.
-                        esNested = new EventSource(`/api/v1/stream/nested?session_id=${encodeURIComponent(session_id)}&max_wait_sec=60&max_accounts=50&max_locations_total=200&max_reviews_per_location=200`);
+                        // Don't hardcode max_* here; in MOCK_GOOGLE_API mode the server will sample per request.
+                        // You can still force deterministic totals by adding &sample=false&max_accounts=...&max_locations_total=...&max_reviews_per_location=...
+                        esNested = new EventSource(`/api/v1/stream/nested?session_id=${encodeURIComponent(session_id)}&max_wait_sec=60`);
             esNested.addEventListener('job', (ev) => {
                 try {
                     const info = JSON.parse(ev.data);

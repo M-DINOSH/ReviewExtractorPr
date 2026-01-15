@@ -67,20 +67,33 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
 
 ### See the Output (Web + Kafka)
 
-- Web demo page (Kafka pipeline + nested aggregation): http://localhost:8084/demo
-- One-shot nested output (runs Kafka pipeline and returns final JSON): `POST /api/v1/demo/nested`
-- Production nested stream (SSE, Kafka-backed):
-    - Production-safe (no token in URL): `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
+#### 🎯 Production Reviews Viewer (NEW)
+**Modern web interface for viewing reviews in real-time:**
+- **URL**: http://localhost:8084/api/v1/reviews-viewer
+- **Features**:
+  - Beautiful card-based UI showing accounts → locations → reviews hierarchy
+  - Real-time streaming updates via Server-Sent Events (SSE)
+  - Live stats dashboard (total accounts, locations, reviews)
+  - Star ratings and review details
+  - Production-safe: token sent securely via POST, never in URL
+
+#### Other Endpoints:
+- **Demo page** (original): http://localhost:8084/demo
+- **One-shot nested output** (runs Kafka pipeline and returns final JSON): `POST /api/v1/demo/nested`
+- **Production nested stream** (SSE, Kafka-backed):
+    - **Recommended**: `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
     - Stream an existing job: `GET /api/v1/stream/nested?job_id=...`
-- Demo nested stream (SSE, token-in-URL; for local/demo-only testing):
+- **Demo nested stream** (SSE, token-in-URL; for local/demo-only testing):
     - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
     - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
-- CLI demo (triggers job + prints nested JSON): `python kafka_stream_demo.py`
+- **CLI demo** (triggers job + prints nested JSON): `python kafka_stream_demo.py`
 
 Note:
-- The `/demo` webpage uses the **production** endpoints (`/api/v1/stream-session` + `/api/v1/stream/nested`) so your browser never puts the OAuth token in the URL.
+- Both the `/reviews-viewer` and `/demo` webpages use the **production** endpoints (`/api/v1/stream-session` + `/api/v1/stream/nested`) so your browser never puts the OAuth token in the URL.
 
-### Interactive Documentation
+### Interactive Documentation & UIs
+- **Reviews Viewer** (Production Web UI): http://localhost:8084/api/v1/reviews-viewer
+- **Demo Page** (Original): http://localhost:8084/demo
 - **Swagger UI**: http://localhost:8084/docs
 - **ReDoc**: http://localhost:8084/redoc
 - **Kafka UI**: http://localhost:8080

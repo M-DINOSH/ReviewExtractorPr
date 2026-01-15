@@ -4,7 +4,7 @@ Implements Clean Architecture with dependency injection
 """
 
 from fastapi import APIRouter, HTTPException, Depends, status, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from typing import Annotated
 import logging
 import uuid
@@ -13,6 +13,9 @@ import time
 import json
 from typing import Any, AsyncIterator, Optional
 import asyncio
+import hashlib
+import random
+from pathlib import Path
 
 from app.models import (
     ReviewFetchRequest, ReviewFetchResponse, HealthCheckResponse, StreamSessionRequest, StreamSessionResponse
@@ -306,6 +309,20 @@ async def create_stream_session(
 
 
 @router.get(
+    "/reviews-viewer",
+    response_class=HTMLResponse,
+    summary="Reviews Viewer Web UI",
+    description="Production-ready web interface for viewing Google Reviews"
+)
+async def reviews_viewer():
+    """Serve the reviews viewer HTML page"""
+    template_path = Path(__file__).parent / "templates" / "reviews_viewer.html"
+    if not template_path.exists():
+        raise HTTPException(status_code=404, detail="Reviews viewer template not found")
+    return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
+
+
+@router.get(
     "/stream/nested",
     summary="Stream nested reviews (Kafka-backed)",
     description="Streams accounts → locations → reviews aggregated from Kafka for a job. Use session_id for production-safe create-and-stream."
@@ -318,6 +335,13 @@ async def stream_nested(
     max_locations_total: int = Query(2000, ge=1, le=10000),
     max_reviews_per_location: int = Query(200, ge=1, le=5000),
     emit_interval_ms: int = Query(250, ge=50, le=2000),
+    sample: Optional[bool] = Query(
+        None,
+        description=(
+            "When true, randomly samples accounts/locations/reviews per request (stable within a job). "
+            "Defaults to true in MOCK_GOOGLE_API mode, otherwise false."
+        ),
+    ),
     api_service: Annotated[APIService, Depends(get_api_service)] = None,
 ) -> StreamingResponse:
     """Production SSE endpoint.
@@ -352,8 +376,11 @@ async def stream_nested(
 
         # Aggregation state
         accounts_by_id: dict[int, dict[str, Any]] = {}
-        locations_by_id: dict[int, dict[str, Any]] = {}
+        # Locations can collide on location_id in mock datasets; prefer unique record id when available.
+        # Keyed by internal location key (record_id if present, else location_id).
+        locations_by_key: dict[int, dict[str, Any]] = {}
         locations_by_account_id: dict[int, set[int]] = {}
+        # Reviews are keyed by location_id (the external/business identifier)
         reviews_by_location_id: dict[int, list[dict[str, Any]]] = {}
 
         last_emit = 0.0
@@ -371,24 +398,57 @@ async def stream_nested(
             except Exception:
                 return None
 
+        # Sampling behavior
+        use_sampling = (settings.mock_google_api if sample is None else bool(sample))
+        rng: Optional[random.Random] = None
+        eff_max_accounts = max_accounts
+        eff_max_locations_total = max_locations_total
+        eff_max_reviews_per_location = max_reviews_per_location
+
+        def _clamped_rand_int(lo: int, hi: int) -> int:
+            lo_i = int(lo)
+            hi_i = int(hi)
+            if hi_i < lo_i:
+                lo_i, hi_i = hi_i, lo_i
+            if hi_i < 0:
+                return 0
+            if lo_i < 0:
+                lo_i = 0
+            return int(rng.randint(lo_i, hi_i)) if rng else hi_i
+
         def build_nested_all() -> dict[str, Any]:
             # Build accounts → locations → reviews (all accounts).
             out_accounts: list[dict[str, Any]] = []
             out_locations_total = 0
             out_reviews_total = 0
 
-            for acc_id in sorted(accounts_by_id.keys()):
+            acc_ids = list(accounts_by_id.keys())
+            if use_sampling and rng:
+                rng.shuffle(acc_ids)
+            else:
+                acc_ids.sort()
+
+            for acc_id in acc_ids:
                 acc = accounts_by_id[acc_id]
-                loc_ids = sorted(list(locations_by_account_id.get(acc_id, set())))
+                loc_ids = list(locations_by_account_id.get(acc_id, set()))
+                if use_sampling and rng:
+                    rng.shuffle(loc_ids)
+                else:
+                    loc_ids.sort()
                 locs: list[dict[str, Any]] = []
                 for loc_id in loc_ids:
-                    if out_locations_total >= max_locations_total:
+                    if out_locations_total >= eff_max_locations_total:
                         break
-                    loc = locations_by_id.get(loc_id)
+                    loc = locations_by_key.get(loc_id)
                     if not loc:
                         continue
                     loc_out = dict(loc)
-                    revs = list(reviews_by_location_id.get(loc_id, []))[:max_reviews_per_location]
+                    loc_location_id = _as_int_id(loc_out.get("location_id"))
+                    revs = (
+                        list(reviews_by_location_id.get(loc_location_id, []))[:eff_max_reviews_per_location]
+                        if loc_location_id is not None
+                        else []
+                    )
                     loc_out["reviews"] = revs
                     locs.append(loc_out)
                     out_locations_total += 1
@@ -399,7 +459,7 @@ async def stream_nested(
                     "locations": locs,
                     "stats": {"locations": len(locs), "reviews": sum(len(l.get("reviews") or []) for l in locs)},
                 })
-                if len(out_accounts) >= max_accounts:
+                if len(out_accounts) >= eff_max_accounts:
                     break
 
             # Joins checks (best-effort)
@@ -480,27 +540,24 @@ async def stream_nested(
                 if isinstance(job_info, dict) and job_info.get("created_at"):
                     await _seek_near_job_created(consumer, str(job_info["created_at"]))
 
-            while time.time() < deadline:
-                try:
-                    msg = await consumer.getone()
-                except Exception:
-                    await asyncio.sleep(0.05)
-                    now = time.time()
-                    if dirty and (now - last_emit) * 1000.0 >= emit_interval_ms:
-                        payload = build_nested_all()
-                        yield (f"event: nested\n" f"data: {json.dumps(payload, ensure_ascii=False)}\n\n").encode("utf-8")
-                        last_emit = now
-                        dirty = False
-                    continue
+            if use_sampling:
+                seed = int.from_bytes(hashlib.sha256(resolved_job_id.encode("utf-8")).digest()[:8], "big")
+                rng = random.Random(seed)
+                # Pick per-job limits (vary per request, stable for this stream/job)
+                eff_max_accounts = max(1, _clamped_rand_int(3, min(max_accounts, 60)))
+                eff_max_locations_total = max(1, _clamped_rand_int(10, min(max_locations_total, 500)))
+                eff_max_reviews_per_location = _clamped_rand_int(0, min(max_reviews_per_location, 50))
 
+            def _ingest_message(msg: Any) -> None:
+                nonlocal dirty
                 payload = msg.value or {}
                 if str(payload.get("job_id")) != str(resolved_job_id):
-                    continue
+                    return
 
                 if msg.topic == "fetch-locations":
                     acc_id = _as_int_id(payload.get("account_id"))
                     if acc_id is None:
-                        continue
+                        return
                     accounts_by_id.setdefault(
                         acc_id,
                         {
@@ -514,24 +571,32 @@ async def stream_nested(
                         },
                     )
                     dirty = True
+                    return
 
-                elif msg.topic == "fetch-reviews":
+                if msg.topic == "fetch-reviews":
                     gaid = _as_int_id(payload.get("google_account_id"))
                     if gaid is None:
                         # Some messages might only carry account_id
                         gaid = _as_int_id(payload.get("account_id"))
                     if gaid is None:
-                        continue
-                    loc_id = _as_int_id(payload.get("location_id", payload.get("id")))
-                    if loc_id is None:
-                        continue
+                        return
+                    # External business location id (used by reviews)
+                    location_id_int = _as_int_id(payload.get("location_id"))
+                    if location_id_int is None:
+                        location_id_int = _as_int_id(payload.get("id"))
+                    if location_id_int is None:
+                        return
 
-                    locations_by_account_id.setdefault(gaid, set()).add(loc_id)
-                    locations_by_id.setdefault(
-                        loc_id,
+                    # Internal stable key for this location record.
+                    record_id_int = _as_int_id(payload.get("id"))
+                    location_key = record_id_int if record_id_int is not None else location_id_int
+
+                    locations_by_account_id.setdefault(gaid, set()).add(location_key)
+                    locations_by_key.setdefault(
+                        location_key,
                         {
-                            "id": payload.get("id", loc_id),
-                            "location_id": payload.get("location_id", loc_id),
+                            "id": payload.get("id", location_key),
+                            "location_id": payload.get("location_id", location_id_int),
                             "client_id": payload.get("client_id", 1),
                             "google_account_id": payload.get("google_account_id") or gaid,
                             "location_name": payload.get("location_name"),
@@ -544,24 +609,25 @@ async def stream_nested(
                         },
                     )
                     dirty = True
+                    return
 
-                elif msg.topic == "reviews-raw":
-                    loc_id = _as_int_id(payload.get("location_id"))
-                    if loc_id is None:
-                        continue
-                    reviews_by_location_id.setdefault(loc_id, [])
-                    if len(reviews_by_location_id[loc_id]) >= max_reviews_per_location:
-                        continue
-                    reviews_by_location_id[loc_id].append(
+                if msg.topic == "reviews-raw":
+                    location_id_int = _as_int_id(payload.get("location_id"))
+                    if location_id_int is None:
+                        return
+                    reviews_by_location_id.setdefault(location_id_int, [])
+                    if len(reviews_by_location_id[location_id_int]) >= max_reviews_per_location:
+                        return
+                    reviews_by_location_id[location_id_int].append(
                         {
                             "id": payload.get("id"),
                             "client_id": payload.get("client_id"),
                             "account_id": payload.get("account_id"),
                             "location_id": payload.get("location_id"),
-                            "google_review_id": payload.get("google_review_id"),
+                            "google_review_id": payload.get("google_review_id") or payload.get("review_id"),
                             "rating": payload.get("rating"),
                             "comment": payload.get("comment") or payload.get("text"),
-                            "reviewer_name": payload.get("reviewer_name"),
+                            "reviewer_name": payload.get("reviewer_name") or payload.get("reviewer"),
                             "reviewer_photo_url": payload.get("reviewer_photo_url"),
                             "review_created_time": payload.get("review_created_time"),
                             "reply_text": payload.get("reply_text"),
@@ -571,6 +637,15 @@ async def stream_nested(
                         }
                     )
                     dirty = True
+                    return
+
+            # Use getmany() with timeout so we can emit periodically even while messages continue.
+            while time.time() < deadline:
+                batch = await consumer.getmany(timeout_ms=200, max_records=500)
+                if batch:
+                    for _tp, msgs in batch.items():
+                        for msg in msgs:
+                            _ingest_message(msg)
 
                 now = time.time()
                 if dirty and (now - last_emit) * 1000.0 >= emit_interval_ms:

@@ -30,16 +30,48 @@
 
 ### Demo Output (Nested)
 
-- **Web UI**: `GET /demo`
-- **One-shot nested output (runs Kafka pipeline)**: `POST /api/v1/demo/nested`
+#### Production Web Interface
+- **Reviews Viewer**: http://localhost:8084/api/v1/reviews-viewer
+  - Modern card-based UI with real-time streaming
+  - Shows accounts → locations → reviews hierarchy
+  - Live stats dashboard
+  - Production-safe: uses session-based authentication
+
+#### API Endpoints
+- **Original Demo UI**: `GET /demo`
+- **One-shot nested output** (runs Kafka pipeline): `POST /api/v1/demo/nested`
 - **Kafka aggregated nested stream (SSE, production)**:
-  - Production-safe (recommended): `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
+  - **Recommended**: `POST /api/v1/stream-session` then `GET /api/v1/stream/nested?session_id=...`
   - Stream an existing job: `GET /api/v1/stream/nested?job_id=...`
 - **Kafka aggregated nested stream (SSE, demo-only)**:
   - Create a new job: `GET /api/v1/demo/stream/nested?access_token=...`
   - Or stream an existing job: `GET /api/v1/demo/stream/nested?job_id=...`
 
 The nested output format is: account → all locations for that account → all reviews for each location.
+
+### Production-Safe Streaming Flow
+
+**Step 1: Create Session**
+```bash
+curl -X POST http://localhost:8084/api/v1/stream-session \
+  -H "Content-Type: application/json" \
+  -d '{"access_token": "your_oauth_token"}'
+```
+Response: `{"session_id": "uuid...", "expires_in_sec": 120}`
+
+**Step 2: Connect to SSE Stream**
+```javascript
+const evtSource = new EventSource(
+  `http://localhost:8084/api/v1/stream/nested?session_id=uuid...`
+);
+evtSource.addEventListener('nested', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Accounts:', data.accounts);
+  console.log('Stats:', data.stats);
+});
+```
+
+This ensures the OAuth token is **never** in the URL (browser history, proxy logs, etc.).
 
 ---
 

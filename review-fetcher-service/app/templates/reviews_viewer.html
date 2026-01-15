@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reviews Viewer - Production Mode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .control-panel {
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .input-group input {
+            flex: 1;
+            min-width: 300px;
+            padding: 12px 18px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .input-group button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .input-group button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .input-group button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            padding: 12px 18px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-weight: 500;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        
+        .stats-bar {
+            padding: 20px 30px;
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-item {
+            flex: 1;
+            min-width: 150px;
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 8px;
+        }
+        
+        .stat-item .label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-item .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .content {
+            padding: 30px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .account-card {
+            background: #fff;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            overflow: hidden;
+            transition: box-shadow 0.3s;
+        }
+        
+        .account-card:hover {
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .account-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .account-header h3 {
+            font-size: 1.3em;
+        }
+        
+        .account-header .badge {
+            background: rgba(255,255,255,0.3);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        
+        .location-list {
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .location-card {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .location-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .location-header h4 {
+            color: #333;
+            font-size: 1.1em;
+        }
+        
+        .location-info {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        
+        .reviews-section {
+            margin-top: 15px;
+        }
+        
+        .reviews-header {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+        
+        .review-item {
+            background: #f8f9fa;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #ffc107;
+        }
+        
+        .review-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .reviewer-name {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .rating {
+            color: #ffc107;
+            font-weight: bold;
+        }
+        
+        .review-comment {
+            color: #555;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+        
+        .review-date {
+            font-size: 0.85em;
+            color: #999;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Google Reviews Viewer</h1>
+            <p>Production-ready streaming reviews from Google Business Profile API</p>
+        </div>
+        
+        <div class="control-panel">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    id="accessToken" 
+                    placeholder="Enter your Google OAuth2 Access Token"
+                    value="demo_token_12345"
+                />
+                <button id="fetchBtn" onclick="startFetch()">🚀 Fetch Reviews</button>
+                <button id="stopBtn" onclick="stopFetch()" disabled>⏹ Stop</button>
+            </div>
+            <div id="statusDiv"></div>
+        </div>
+        
+        <div class="stats-bar" id="statsBar" style="display: none;">
+            <div class="stat-item">
+                <div class="label">Accounts</div>
+                <div class="value" id="accountCount">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">Locations</div>
+                <div class="value" id="locationCount">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">Reviews</div>
+                <div class="value" id="reviewCount">0</div>
+            </div>
+        </div>
+        
+        <div class="content" id="content">
+            <div class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <h3>Ready to fetch reviews</h3>
+                <p>Enter your Google OAuth2 access token and click "Fetch Reviews" to begin</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let sessionId = null;
+
+        function setStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusDiv');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+
+        function showLoading() {
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Streaming reviews from Google Business Profile API...</p>
+                </div>
+            `;
+        }
+
+        async function startFetch() {
+            const accessToken = document.getElementById('accessToken').value.trim();
+            
+            if (!accessToken) {
+                setStatus('Please enter an access token', 'error');
+                return;
+            }
+
+            // Disable fetch button, enable stop button
+            document.getElementById('fetchBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            
+            showLoading();
+            setStatus('Creating stream session...', 'info');
+
+            try {
+                // Step 1: Create stream session
+                const sessionResponse = await fetch('http://localhost:8084/api/v1/stream-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ access_token: accessToken })
+                });
+
+                if (!sessionResponse.ok) {
+                    throw new Error(`Failed to create session: ${sessionResponse.status}`);
+                }
+
+                const sessionData = await sessionResponse.json();
+                sessionId = sessionData.session_id;
+                
+                setStatus(`Session created! ID: ${sessionId.substring(0, 8)}... Connecting to stream...`, 'success');
+
+                // Step 2: Connect to SSE stream
+                const streamUrl = `http://localhost:8084/api/v1/stream/nested?session_id=${sessionId}&max_wait_sec=60&emit_interval_ms=500`;
+                eventSource = new EventSource(streamUrl);
+
+                eventSource.addEventListener('job', (event) => {
+                    const data = JSON.parse(event.data);
+                    setStatus(`Job started! ID: ${data.job_id}`, 'success');
+                });
+
+                eventSource.addEventListener('nested', (event) => {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                    setStatus(`Streaming... Last update: ${new Date().toLocaleTimeString()}`, 'success');
+                });
+
+                eventSource.addEventListener('done', (event) => {
+                    setStatus('✅ Stream completed successfully!', 'success');
+                    stopFetch();
+                });
+
+                eventSource.onerror = (error) => {
+                    console.error('SSE Error:', error);
+                    setStatus('Stream connection error. Check console for details.', 'error');
+                    stopFetch();
+                };
+
+            } catch (error) {
+                setStatus(`Error: ${error.message}`, 'error');
+                document.getElementById('fetchBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            }
+        }
+
+        function stopFetch() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            document.getElementById('fetchBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        function updateUI(data) {
+            const stats = data.stats || {};
+            const accounts = data.accounts || [];
+
+            // Update stats bar
+            document.getElementById('statsBar').style.display = 'flex';
+            document.getElementById('accountCount').textContent = stats.accounts || 0;
+            document.getElementById('locationCount').textContent = stats.locations || 0;
+            document.getElementById('reviewCount').textContent = stats.reviews || 0;
+
+            // Update content
+            const content = document.getElementById('content');
+            
+            if (accounts.length === 0) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        <p>No data received yet. Waiting for accounts...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            accounts.forEach(accountBlock => {
+                const account = accountBlock.account || {};
+                const locations = accountBlock.locations || [];
+                const accountStats = accountBlock.stats || {};
+
+                html += `
+                    <div class="account-card">
+                        <div class="account-header">
+                            <h3>🏢 ${account.account_display_name || account.google_account_name || 'Account ' + account.account_id}</h3>
+                            <div class="badge">${accountStats.locations || 0} locations, ${accountStats.reviews || 0} reviews</div>
+                        </div>
+                        <div class="location-list">
+                `;
+
+                if (locations.length === 0) {
+                    html += '<p style="color: #999;">No locations yet...</p>';
+                } else {
+                    locations.forEach(location => {
+                        const reviews = location.reviews || [];
+                        html += `
+                            <div class="location-card">
+                                <div class="location-header">
+                                    <h4>📍 ${location.location_title || location.location_name || 'Location ' + location.location_id}</h4>
+                                    <span style="color: #667eea; font-weight: 600;">${reviews.length} reviews</span>
+                                </div>
+                                <div class="location-info">
+                                    ${location.address || ''} ${location.phone ? '• ' + location.phone : ''} ${location.category ? '• ' + location.category : ''}
+                                </div>
+                        `;
+
+                        if (reviews.length > 0) {
+                            html += '<div class="reviews-section"><div class="reviews-header">💬 Customer Reviews</div>';
+                            reviews.forEach(review => {
+                                const stars = '⭐'.repeat(review.rating || 5);
+                                html += `
+                                    <div class="review-item">
+                                        <div class="review-header">
+                                            <span class="reviewer-name">${review.reviewer_name || 'Anonymous'}</span>
+                                            <span class="rating">${stars} ${review.rating || 5}/5</span>
+                                        </div>
+                                        <div class="review-comment">${review.comment || review.text || 'No comment provided'}</div>
+                                        <div class="review-date">${review.review_created_time || review.created_at || ''}</div>
+                                    </div>
+                                `;
+                            });
+                            html += '</div>';
+                        }
+
+                        html += '</div>';
+                    });
+                }
+
+                html += '</div></div>';
+            });
+
+            content.innerHTML = html;
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            stopFetch();
+        });
+    </script>
+</body>
+</html>

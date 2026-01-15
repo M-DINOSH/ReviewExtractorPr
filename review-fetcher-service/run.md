@@ -68,19 +68,36 @@ Expected output includes `kafka_connected: true`.
 
 - **Review Fetcher API**: `http://localhost:8084`
 - **Health**: `http://localhost:8084/api/v1/health`
-- **Demo UI**: `http://localhost:8084/demo`
+- **Reviews Viewer (Production Web UI)**: `http://localhost:8084/api/v1/reviews-viewer` ⭐ NEW
+- **Demo UI (Original)**: `http://localhost:8084/demo`
+- **Swagger Docs**: `http://localhost:8084/docs`
 - **Kafka UI**: `http://localhost:8080`
 - **Kafka (host bootstrap)**: `localhost:9094`
 
 ---
 
-## 4) Run the nested output (Kafka-streamed)
+## 4) View Reviews
 
-### Option A — Web UI (easiest)
+### Option A — Production Reviews Viewer (BEST) ⭐
 
-Open in browser:
+**Open in browser**: http://localhost:8084/api/v1/reviews-viewer
 
-- `http://localhost:8084/demo`
+**Features**:
+- Beautiful card-based UI showing accounts → locations → reviews
+- Real-time streaming updates via SSE
+- Live stats dashboard (accounts, locations, reviews counts)
+- Star ratings and full review details
+- Production-safe: OAuth token sent securely in POST body, never in URL
+
+**How to use**:
+1. Enter your Google OAuth2 access token (or use the pre-filled demo token)
+2. Click "🚀 Fetch Reviews"
+3. Watch accounts, locations, and reviews stream in real-time
+4. Click "⏹ Stop" to stop streaming
+
+### Option B — Original Demo UI
+
+Open in browser: `http://localhost:8084/demo`
 
 On that page you can:
 
@@ -89,7 +106,7 @@ On that page you can:
   - `POST /api/v1/stream-session` (token in body)
   - then `GET /api/v1/stream/nested?session_id=...` (SSE)
 
-### Option B — CLI demo (prints final nested JSON)
+### Option C — CLI demo (prints final nested JSON)
 
 From `review-fetcher-service/`:
 
