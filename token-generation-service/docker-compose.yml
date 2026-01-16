@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: token-service-postgres
+    environment:
+      POSTGRES_USER: token_user
+      POSTGRES_PASSWORD: token_password
+      POSTGRES_DB: token_service_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U token_user -d token_service_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - token-network
+
+  # Token Generation Service
+  token-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: token-generation-service
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://token_user:token_password@postgres:5432/token_service_db
+      - HOST=0.0.0.0
+      - PORT=8002
+      - LOG_LEVEL=INFO
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - token-network
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Running database migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting application...' &&
+        uvicorn src.token_service.api.main:app --host 0.0.0.0 --port 8002
+      "
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  token-network:
+    driver: bridge
