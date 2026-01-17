@@ -4,13 +4,14 @@ A production-ready microservice for managing OAuth2 tokens for Google Business P
 
 ## 🎯 Features
 
-- **OAuth2 Flow Management**: Complete Google OAuth authorization flow
-- **Token Lifecycle**: Automatic token refresh before expiration
-- **Branch Tracking**: Support for multiple business branches per client
-- **PostgreSQL Database**: Persistent storage with Alembic migrations
+- **OAuth2 Flow Management**: Complete Google OAuth authorization flow with Google Business Profile API
+- **Token Lifecycle**: Automatic token refresh 5 minutes before expiration
+- **Workspace Integration**: Single-step client registration with workspace info (email, name, branch_id)
+- **PostgreSQL Database**: Persistent storage with Alembic migrations (clients + tokens tables)
 - **Production Ready**: Docker containerized with health checks
-- **RESTful API**: FastAPI-based endpoints with automatic documentation
-- **Security**: State parameter validation, token expiry management
+- **RESTful API**: FastAPI-based with automatic documentation (Swagger/ReDoc)
+- **Review Fetcher Integration**: Pull-based token retrieval endpoint for external services
+- **Security**: Token expiry management, secure credential storage, cascade delete on client removal
 
 ## 📋 Table of Contents
 
@@ -23,39 +24,35 @@ A production-ready microservice for managing OAuth2 tokens for Google Business P
 
 ## 🏗️ Architecture
 
-### Database Schema
+### Database Schema (Simplified - 2 Tables)
 
 ```
-┌─────────────┐       ┌─────────────┐       ┌─────────────┐
-│   Clients   │       │  Branches   │       │   Tokens    │
-├─────────────┤       ├─────────────┤       ├─────────────┤
-│ id (PK)     │───┐   │ id (PK)     │       │ id (PK)     │
-│ client_id   │   └──→│ client_id   │   ┌──→│ client_id   │
-│ secret      │       │ branch_id   │   │   │ access_token│
-│ redirect_uri│       │ branch_name │   │   │ refresh_token│
-│ is_active   │       │ account_id  │   │   │ expires_at  │
-└─────────────┘       │ location_id │   │   │ is_valid    │
-                      │ email       │   │   └─────────────┘
-                      │ is_active   │   │
-                      └─────────────┘   │
-                                       │
-                      ┌─────────────┐   │
-                      │ OAuthStates │   │
-                      ├─────────────┤   │
-                      │ id (PK)     │   │
-                      │ state       │   │
-                      │ client_id   │───┘
-                      │ expires_at  │
-                      │ is_used     │
-                      └─────────────┘
+┌─────────────────────────────┐        ┌─────────────────────┐
+│          Clients            │        │       Tokens        │
+├─────────────────────────────┤        ├─────────────────────┤
+│ id (PK)                     │        │ id (PK)             │
+│ client_id (Google)          │        │ client_id (FK)  ────┼─→
+│ client_secret               │        │ access_token        │
+│ redirect_uri                │        │ refresh_token       │
+│ branch_id (unique)          │────┐   │ expires_at          │
+│ workspace_email             │    │   │ is_valid            │
+│ workspace_name              │    │   │ is_revoked          │
+│ is_active                   │    │   │ token_type (Bearer) │
+│ created_at                  │    │   │ scope               │
+│ updated_at                  │    │   │ last_refreshed_at   │
+└─────────────────────────────┘    │   │ created_at          │
+                                   │   │ updated_at          │
+                                   │   └─────────────────────┘
+                                   │
+                                   └── (Cascade Delete)
 ```
 
 ### Key Concepts
 
-- **Client**: Stores Google OAuth credentials (client_id, client_secret)
-- **Branch**: Links clients to specific business locations/branches
-- **Token**: Stores access/refresh tokens with automatic refresh logic
-- **BranchID**: Unique identifier to track review fetching across accounts/locations
+- **Client**: Single table storing both Google OAuth credentials + workspace info (branch_id, email, workspace name)
+- **Token**: Stores access/refresh tokens per client with expiry tracking and auto-refresh logic
+- **Branch ID**: Unique identifier (UUID) passed at registration to track review fetching for specific branches
+- **Auto-Refresh**: Tokens automatically refresh 5 minutes before expiration when requested
 
 ## 🚀 Setup
 
@@ -137,135 +134,138 @@ Once running, access interactive API documentation:
 - **Swagger UI**: http://localhost:8002/docs
 - **ReDoc**: http://localhost:8002/redoc
 
-### Core Endpoints
+### Core Endpoints (4 Main APIs)
 
-#### Client Management
+| Method | Endpoint | Description | Used By |
+|--------|----------|-------------|----------|
+| POST | `/clients` | Register OAuth client + workspace info | Admin/Setup |
+| GET | `/oauth/login/{client_id}` | Redirect to Google OAuth consent | User Browser |
+| GET | `/auth/callback` | OAuth callback (Google redirects here) | Google |
+| GET | `/tokens/{branch_id}` | Get valid token (auto-refreshes if near expiry) | review-fetcher-service |
+| POST | `/tokens/refresh` | Manually refresh expired token | External Services |
+| GET | `/health` | Health check (database connection) | Monitoring |
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/clients` | Register new OAuth client |
-| GET | `/clients` | List all clients |
-| GET | `/clients/{id}` | Get client details |
-| PATCH | `/clients/{id}` | Update client |
-| DELETE | `/clients/{id}` | Delete client |
-
-#### Branch Management
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/branches` | Create new branch |
-| GET | `/branches` | List branches (filterable) |
-| GET | `/branches/{id}` | Get branch details |
-| GET | `/branches/by-branch-id/{branch_id}` | Get branch by branch_id |
-| PATCH | `/branches/{id}` | Update branch |
-| DELETE | `/branches/{id}` | Delete branch |
-
-#### OAuth Flow
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/oauth/start/{client_id}` | Get OAuth authorization URL |
-| GET | `/oauth/login/{client_id}` | Browser redirect to OAuth |
-| GET | `/auth/callback` | OAuth callback (Google redirects here) |
-
-#### Token Management
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tokens/validate/{client_id}` | Get valid token (auto-refresh) |
-| POST | `/tokens/refresh` | Manually refresh token |
-| GET | `/tokens/client/{client_id}` | Get current token |
-| DELETE | `/tokens/{client_id}` | Revoke all client tokens |
+**Note**: 
+- `{client_id}` = internal database ID (returned from POST /clients)
+- `{branch_id}` = unique branch identifier (passed in POST /clients)
 
 ## 💡 Usage
 
-### Step 1: Register a Client
+### Step 1: Register Client + Workspace (Single Request)
+
+This single endpoint registers the OAuth client and workspace info together:
 
 ```bash
 curl -X POST http://localhost:8002/clients \
   -H "Content-Type: application/json" \
   -d '{
-    "client_id": "YOUR_GOOGLE_CLIENT_ID",
-    "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
-    "redirect_uri": "http://localhost:8002/auth/callback"
+    "client_id": "1034365909240-xxxxx.apps.googleusercontent.com",
+    "client_secret": "GOCSPX-xxxxxxxxxxxxx",
+    "redirect_uri": "http://localhost:8002/auth/callback",
+    "branch_id": "uuid-12345",
+    "workspace_email": "workspace@company.com",
+    "workspace_name": "Company Workspace"
   }'
 ```
 
 Response:
 ```json
 {
-  "id": 1,
-  "client_id": "YOUR_GOOGLE_CLIENT_ID",
+  "success": true,
+  "message": "Client created successfully",
+  "client_id": 1,
+  "client_oauth_id": "1034365909240-xxxxx.apps.googleusercontent.com",
+  "branch_id": 1,
+  "branch_identifier": "uuid-12345",
+  "email": "workspace@company.com",
+  "workspace_name": "Company Workspace",
   "redirect_uri": "http://localhost:8002/auth/callback",
-  "is_active": true,
-  "created_at": "2026-01-16T10:00:00",
-  "updated_at": "2026-01-16T10:00:00"
+  "created_at": "2026-01-16T16:13:05.364170"
 }
 ```
 
-### Step 2: Create Branches
+### Step 2: Start OAuth Flow
 
-```bash
-curl -X POST http://localhost:8002/branches \
-  -H "Content-Type: application/json" \
-  -d '{
-    "branch_id": "branch-nyc-001",
-    "client_id": 1,
-    "branch_name": "NYC Branch",
-    "email": "nyc@company.com",
-    "account_id": "accounts/123456",
-    "location_id": "locations/789012"
-  }'
+Navigate user's browser to this URL:
+
+```
+http://localhost:8002/oauth/login/1
 ```
 
-### Step 3: Complete OAuth Flow
+This endpoint:
+1. Fetches the client's OAuth credentials
+2. Redirects to Google OAuth consent screen
+3. User grants permission for `business.manage` scope
+4. Google redirects back to `/auth/callback`
 
-Navigate to: `http://localhost:8002/oauth/login/1`
+### Step 3: OAuth Callback (Automatic)
 
-This will:
-1. Redirect to Google OAuth consent screen
-2. User authorizes access
-3. Google redirects back to `/auth/callback`
-4. Tokens are automatically stored
+Google automatically redirects here with the authorization code. The service:
+1. Exchanges code for access + refresh tokens
+2. Stores tokens in database
+3. Returns tokens to client
 
-### Step 4: Validate & Use Tokens
-
-```bash
-curl http://localhost:8002/tokens/validate/1
-```
-
-Response:
 ```json
 {
-  "is_valid": true,
-  "access_token": "ya29.a0AfH6...",
-  "expires_at": "2026-01-16T11:00:00",
-  "message": "Token is valid"
+  "success": true,
+  "message": "OAuth flow completed successfully",
+  "client_id": "1034365909240-xxxxx.apps.googleusercontent.com",
+  "branch_id": "uuid-12345",
+  "access_token": "ya29.a0AU...",
+  "expires_at": "2026-01-16T17:16:52.120354"
 }
 ```
 
-### Step 5: Integration with Review Fetcher
+### Step 4: Review Fetcher Service - Get Valid Token
 
-The review-fetcher-service can now call this endpoint before making API requests:
+The review-fetcher-service calls this to get a valid access token:
+
+```bash
+curl http://localhost:8002/tokens/uuid-12345
+```
+
+Response (with auto-refresh if needed):
+```json
+{
+  "success": true,
+  "message": "Token retrieved successfully",
+  "client_id": 1,
+  "branch_id": "uuid-12345",
+  "access_token": "ya29.a0AU...",
+  "refresh_token": null,
+  "expires_at": "2026-01-16T18:16:52.120354",
+  "token_type": "Bearer"
+}
+```
+
+### Step 5: Python Integration Example
 
 ```python
 import httpx
 
-async def get_valid_token(client_id: int) -> str:
+async def get_valid_token(branch_id: str) -> str:
+    """Get valid access token for a branch from token service"""
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"http://token-service:8002/tokens/validate/{client_id}"
+            f"http://token-service:8002/tokens/{branch_id}"
         )
         data = response.json()
         
-        if data["is_valid"]:
+        if data["success"]:
             return data["access_token"]
         else:
-            raise Exception("No valid token available")
+            raise Exception(f"Failed to get token: {data.get('message')}")
 
 # Use in your API calls
-access_token = await get_valid_token(client_id=1)
+access_token = await get_valid_token(branch_id="uuid-12345")
 headers = {"Authorization": f"Bearer {access_token}"}
+
+# Call Google Business Profile API
+async with httpx.AsyncClient() as client:
+    response = await client.get(
+        "https://businessprofiles.googleapis.com/v1/accounts/123/locations/456",
+        headers=headers
+    )
 ```
 
 ## 🛠️ Development
