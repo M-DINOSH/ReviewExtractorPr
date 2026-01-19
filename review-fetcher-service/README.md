@@ -44,20 +44,80 @@ docker compose ps
 docker logs review-fetcher-service -f
 ```
 
-### Test the API
+### Step 1: Register OAuth Client
 
 ```bash
-# Health check
-curl http://localhost:8084/api/v1/health
-
-# Submit a review fetch job
-curl -X POST http://localhost:8084/api/v1/review-fetch \
+curl -X POST http://localhost:8084/token-management/clients \
   -H "Content-Type: application/json" \
   -d '{
-    "access_token": "ya29.YOUR_GOOGLE_TOKEN"
+    "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
+    "client_secret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8084/token-management/auth/callback",
+    "branch_id": "branch-uuid-123",
+    "workspace_email": "workspace@example.com",
+    "workspace_name": "My Workspace"
   }'
+```
 
-# Response (202 Accepted)
+Response:
+```json
+{
+  "success": true,
+  "client_id": 1,
+  "branch_id": 1,
+  "branch_identifier": "branch-uuid-123",
+  "redirect_uri": "http://localhost:8084/token-management/auth/callback"
+}
+```
+
+### Step 2: OAuth Login & Get Token
+
+**Open this URL in your browser** (replace `1` with your client_id):
+```
+http://localhost:8084/token-management/oauth/login/1
+```
+
+**For Google Cloud Console**, add this redirect URI:
+```
+http://localhost:8084/token-management/auth/callback
+```
+
+After OAuth approval, the service stores the token automatically.
+
+### Step 3: Retrieve Valid Access Token
+
+```bash
+curl http://localhost:8084/token-management/tokens/branch-uuid-123 | jq .
+```
+
+Response (auto-refreshes if near expiry):
+```json
+{
+  "success": true,
+  "message": "Token retrieved successfully",
+  "access_token": "ya29.a0AU...",
+  "refresh_token": "1//0gU...",
+  "expires_at": "2026-01-17T19:30:00",
+  "token_type": "Bearer"
+}
+```
+
+### Step 4: Submit Review Fetch Job (using token)
+
+```bash
+curl -X POST http://localhost:8084/api/v1/fetch/job/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "access_token": "ya29.a0AU...",
+    "job_metadata": {
+      "branch": "branch-uuid-123",
+      "source": "browser"
+    }
+  }'
+```
+
+Response (202 Accepted):
+```json
 {
   "job_id": "a11675be-be10-4f45-8f27-711104917523",
   "status": "queued",
@@ -65,7 +125,178 @@ curl -X POST http://localhost:8084/api/v1/review-fetch \
 }
 ```
 
+### Step 5: Stream Reviews in Real-Time
+
+```bash
+# Option A: Using job_id (production-safe, no token in URL)
+curl -N http://localhost:8084/api/v1/fetch/job/a11675be-be10-4f45-8f27-711104917523/stream
+```
+
+Alternatively, **visit the web UI**:
+```
+http://localhost:8084/api/v1/reviews-viewer
+```
+
+### Test the API (Quick Health Check)
+
+```bash
+# Health check
+curl http://localhost:8084/api/v1/health
+
+# Check token management endpoints
+curl http://localhost:8084/token-management/clients
+```
+
 ### See the Output (Web + Kafka)
+
+### See the Output (Web + Kafka)
+
+---
+
+## 🔐 Token Management System
+
+The review-fetcher-service includes a **dual-database token management system** for secure OAuth token handling:
+
+### Database Architecture
+
+- **Client Database** (postgres-clients:5436): Stores OAuth client credentials and workspace info
+- **Token Database** (postgres-tokens:5435): Stores access/refresh tokens separately for security
+
+### Token Management Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/token-management/clients` | Register OAuth client with workspace info |
+| GET | `/token-management/oauth/login/{client_id}` | Redirect to Google OAuth consent screen |
+| GET | `/token-management/auth/callback` | OAuth callback (Google redirects here) |
+| POST | `/token-management/tokens/refresh` | Manually refresh expired token |
+| GET | `/token-management/tokens/{branch_id}` | Get valid access token (auto-refreshes) |
+
+### Complete OAuth Flow Example
+
+**1. Register a client** (one-time setup):
+```bash
+curl -X POST http://localhost:8084/token-management/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
+    "client_secret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8084/token-management/auth/callback",
+    "branch_id": "branch-us-east-1",
+    "workspace_email": "workspace@company.com",
+    "workspace_name": "My Workspace"
+  }'
+```
+
+**2. Start OAuth flow** (user action in browser):
+```
+http://localhost:8084/token-management/oauth/login/1
+```
+
+**3. After user grants permission**, tokens are stored automatically. Retrieve them:
+```bash
+curl http://localhost:8084/token-management/tokens/branch-us-east-1 | jq .
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Token retrieved successfully",
+  "client_id": 1,
+  "branch_id": "branch-us-east-1",
+  "access_token": "ya29.a0AU...",
+  "refresh_token": "1//0gU...",
+  "expires_at": "2026-01-17T19:30:00",
+  "token_type": "Bearer"
+}
+```
+
+### Using Token to Fetch Reviews
+
+Once you have an access token, submit a review fetch job:
+
+```bash
+ACCESS_TOKEN=$(curl -s http://localhost:8084/token-management/tokens/branch-us-east-1 | jq -r '.access_token')
+
+curl -X POST http://localhost:8084/api/v1/fetch/job/submit \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"access_token\": \"$ACCESS_TOKEN\",
+    \"job_metadata\": {
+      \"branch\": \"branch-us-east-1\",
+      \"source\": \"api\"
+    }
+  }" | jq .
+```
+
+**Response:**
+```json
+{
+  "job_id": "a11675be-be10-4f45-8f27-711104917523",
+  "status": "queued",
+  "message": "Job enqueued for processing"
+}
+```
+
+### Stream Reviews via SSE
+
+Once job is submitted, stream the results in real-time:
+
+```bash
+curl -N http://localhost:8084/api/v1/fetch/job/a11675be-be10-4f45-8f27-711104917523/stream
+```
+
+**Output format:**
+```
+event: accounts
+data: {"accounts":[{"id":"123","name":"Account Name"},...]}
+
+event: locations
+data: {"locations":[{"id":"456","name":"Location","account_id":"123"},...]}
+
+event: reviews
+data: {"reviews":[{"id":"789","rating":5,"text":"Great!","location_id":"456"},...]}
+
+event: done
+data: {"status":"completed","total_reviews":150}
+```
+
+### Quick Testing (Mock Mode)
+
+For testing without real Google OAuth:
+
+```bash
+# 1. Create client (any values work in mock mode)
+curl -X POST http://localhost:8084/token-management/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "test-client",
+    "client_secret": "test-secret",
+    "redirect_uri": "http://localhost:8084/token-management/auth/callback",
+    "branch_id": "test-branch",
+    "workspace_email": "test@test.com",
+    "workspace_name": "Test"
+  }'
+
+# 2. Seed token directly in database (skip OAuth)
+docker-compose exec -T postgres-tokens psql -U token_user -d token_service_db -c \
+  "INSERT INTO tokens (client_id, access_token, refresh_token, token_type, scope, expires_at, is_valid, is_revoked, created_at) 
+   VALUES (1, 'test-token-xyz', 'test-refresh-abc', 'Bearer', 'business.manage', NOW() + INTERVAL '2 hours', true, false, NOW());"
+
+# 3. Fetch the token
+curl http://localhost:8084/token-management/tokens/test-branch | jq .
+
+# 4. Submit review fetch job
+curl -X POST http://localhost:8084/api/v1/fetch/job/submit \
+  -H "Content-Type: application/json" \
+  -d '{"access_token":"test-token-xyz"}'
+
+# 5. Stream results
+curl -N http://localhost:8084/api/v1/fetch/job/{job_id}/stream
+```
+
+---
 
 #### 🎯 Production Reviews Viewer (NEW)
 **Modern web interface for viewing reviews in real-time:**
